@@ -56,6 +56,16 @@ export interface OSForgeContext {
 }
 
 export type ContextInvariantCode =
+  | "missing_context"
+  | "invalid_tenant_id"
+  | "invalid_actor_id"
+  | "invalid_actor_tenant_id"
+  | "invalid_organization_id"
+  | "invalid_organization_tenant_id"
+  | "invalid_workspace_id"
+  | "invalid_workspace_tenant_id"
+  | "invalid_workspace_organization_id"
+  | "invalid_correlation_id"
   | "actor_tenant_mismatch"
   | "organization_tenant_mismatch"
   | "workspace_tenant_mismatch"
@@ -64,9 +74,21 @@ export type ContextInvariantCode =
 export interface ContextInvariantViolation {
   code: ContextInvariantCode;
   message: string;
-  expectedTenantId: string;
+  expectedTenantId?: string;
   actualTenantId?: string;
+  expectedOrganizationId?: string;
   actualOrganizationId?: string;
+}
+
+export type ContextViolation = ContextInvariantViolation;
+
+export interface TenantBoundary {
+  tenantId: string;
+}
+
+export interface WorkspaceBoundary extends TenantBoundary {
+  organizationId: string;
+  workspaceId: string;
 }
 
 export type ContextValidationResult =

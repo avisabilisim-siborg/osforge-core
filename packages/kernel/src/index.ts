@@ -3,4 +3,4 @@ export type {
   KernelModule,
   OSForgeContext,
   OrchestrationResult
-} from "@osforge/protocol";
+} from "#protocol";

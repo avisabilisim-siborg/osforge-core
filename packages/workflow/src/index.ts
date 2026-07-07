@@ -6,4 +6,4 @@ export type {
   WorkflowPlan,
   WorkflowStep,
   WorkflowStepStatus
-} from "@osforge/protocol";
+} from "#protocol";

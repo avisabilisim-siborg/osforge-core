@@ -4,11 +4,16 @@
   "private": true,
   "description": "Core workspace for OSForge autonomous software systems.",
   "type": "module",
+  "imports": {
+    "#protocol": "./dist/protocol/src/index.js"
+  },
   "workspaces": [
     "packages/*"
   ],
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "build": "tsc",
+    "test": "npm run build && node --test tests/security.test.mjs",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.type-tests.json"
   },
   "devDependencies": {
     "typescript": "^5.5.0"

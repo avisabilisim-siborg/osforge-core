@@ -15,6 +15,9 @@
       ],
       "@osforge/protocol/*": [
         "packages/protocol/src/*.ts"
+      ],
+      "#protocol": [
+        "packages/protocol/src/index.ts"
       ]
     }
   },

@@ -3,4 +3,4 @@ export type {
   IntentRequest,
   IntentRiskLevel,
   ParsedIntent
-} from "@osforge/protocol";
+} from "#protocol";

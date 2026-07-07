@@ -1,13 +1,16 @@
 export type {
   Actor,
   ActorType,
+  ContextViolation,
   DigitalEmployee,
   HumanUser,
   KernelModule,
   Organization,
   OSForgeContext,
+  TenantBoundary,
   Tenant,
-  Workspace
+  Workspace,
+  WorkspaceBoundary
 } from "./core.js";
 
 export type {
@@ -16,6 +19,12 @@ export type {
   ContextValidationResult,
   OSForgeContextValidator
 } from "./core.js";
+
+export {
+  tenantBoundaryFromContext,
+  validateOSForgeContext,
+  workspaceBoundaryFromContext
+} from "./context.js";
 
 export type {
   IntentConfidence,

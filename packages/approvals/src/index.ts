@@ -1,7 +1,7 @@
 export {
   CRITICAL_ACTION_TYPES,
   requiresHumanApproval
-} from "@osforge/protocol";
+} from "#protocol";
 
 export type {
   ApprovalDecision,
@@ -9,4 +9,4 @@ export type {
   ApprovalRequest,
   ApprovalStatus,
   CriticalActionType
-} from "@osforge/protocol";
+} from "#protocol";
