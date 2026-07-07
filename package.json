@@ -5,14 +5,15 @@
   "description": "Core workspace for OSForge autonomous software systems.",
   "type": "module",
   "imports": {
-    "#protocol": "./dist/protocol/src/index.js"
+    "#protocol": "./dist/protocol/src/index.js",
+    "#policy": "./dist/policy/src/index.js"
   },
   "workspaces": [
     "packages/*"
   ],
   "scripts": {
     "build": "tsc",
-    "test": "npm run build && node --test tests/security.test.mjs",
+    "test": "npm run build && node --test tests/*.test.mjs",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.type-tests.json"
   },
   "devDependencies": {

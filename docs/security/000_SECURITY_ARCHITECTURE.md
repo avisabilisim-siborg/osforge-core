@@ -104,7 +104,7 @@ Security dependencies block feature readiness. They are not optional roadmap not
 
 - Must be completed before: public API, web/mobile clients, external plugin endpoints.
 - Depends on: Sprint 2.
-- Scope: Edge Protection / WAF, DDoS and bot protection, API gateway boundary, edge request classification.
+- Scope: Edge Security Boundary, request normalization, payload limits, rate-limit adapter, abuse/bot detection adapter, edge request classification.
 
 ### Sprint 4: Identity and MFA
 

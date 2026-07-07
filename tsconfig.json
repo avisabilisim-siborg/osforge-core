@@ -18,6 +18,9 @@
       ],
       "#protocol": [
         "packages/protocol/src/index.ts"
+      ],
+      "#policy": [
+        "packages/policy/src/index.ts"
       ]
     }
   },

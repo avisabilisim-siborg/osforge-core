@@ -17,7 +17,7 @@
 OSForge Core guvenlik katmanlarini musteri ozelliklerinden once tamamlar.
 
 - Sprint 2: Context, Policy and Isolation Foundation.
-- Sprint 3: Edge Security.
+- Sprint 3: Edge Security Boundary, request normalization, payload limits, rate-limit and abuse detection contracts.
 - Sprint 4: Identity and MFA.
 - Sprint 5: Runtime Isolation.
 - Sprint 6: Detection and Response.

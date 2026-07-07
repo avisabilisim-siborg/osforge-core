@@ -4,6 +4,7 @@
     "noEmit": true
   },
   "include": [
-    "tests/type-security.test.ts"
+    "tests/type-security.test.ts",
+    "tests/edge-type-security.test.ts"
   ]
 }
