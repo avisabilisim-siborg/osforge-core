@@ -7,7 +7,16 @@
     "declaration": true,
     "sourceMap": true,
     "outDir": "dist",
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "baseUrl": ".",
+    "paths": {
+      "@osforge/protocol": [
+        "packages/protocol/src/index.ts"
+      ],
+      "@osforge/protocol/*": [
+        "packages/protocol/src/*.ts"
+      ]
+    }
   },
   "include": [
     "packages/**/*.ts"
