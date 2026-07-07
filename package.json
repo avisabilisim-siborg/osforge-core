@@ -1,0 +1,16 @@
+{
+  "name": "osforge-core",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Core workspace for OSForge autonomous software systems.",
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0"
+  }
+}
