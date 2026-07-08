@@ -6,7 +6,8 @@
   "type": "module",
   "imports": {
     "#protocol": "./dist/protocol/src/index.js",
-    "#policy": "./dist/policy/src/index.js"
+    "#policy": "./dist/policy/src/index.js",
+    "#identity": "./dist/identity/src/index.js"
   },
   "workspaces": [
     "packages/*"

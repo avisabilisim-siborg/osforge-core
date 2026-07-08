@@ -21,6 +21,9 @@
       ],
       "#policy": [
         "packages/policy/src/index.ts"
+      ],
+      "#identity": [
+        "packages/identity/src/index.ts"
       ]
     }
   },
