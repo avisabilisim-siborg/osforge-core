@@ -16,6 +16,9 @@ import {
   createRuntimeResourceQuota,
   createRuntimeExecutionPermit,
   createSandboxPolicy,
+  createSandboxProviderAttestation,
+  createSandboxProvider,
+  evaluateSandboxProvider,
   createRuntimeIsolationContext,
   evaluateSandboxCapability,
   evaluateRuntimeExecutionGate,
@@ -23,7 +26,8 @@ import {
   isExecutionIdentity,
   isIsolationBoundaryDecision,
   isRuntimeExecutionPermit,
-  isRuntimeIsolationContext
+  isRuntimeIsolationContext,
+  isSandboxProvider
 } from "../dist/runtime-isolation/src/index.js";
 
 const now = "2026-07-09T12:00:00.000Z";
@@ -197,6 +201,35 @@ function distributedReplayProtectionStore(overrides = {}) {
     },
     ...overrides
   };
+}
+
+function sandboxProvider(overrides = {}) {
+  const providerId = overrides.providerId ?? "sandbox_provider_1";
+  const providerType = overrides.providerType ?? "testOnly";
+  const environmentMode = overrides.environmentMode ?? "test";
+  const capabilities = overrides.capabilities ?? ["filesystemRead"];
+  const attestation = createSandboxProviderAttestation(
+    overrides.attestation ?? {
+      result: overrides.attestationResult ?? "TRUSTED",
+      providerId,
+      providerType,
+      environmentMode,
+      capabilities,
+      attestedAt: now
+    }
+  );
+  assert.notEqual(attestation, null);
+  const provider = createSandboxProvider({
+    providerId,
+    providerType,
+    capabilities,
+    attestation,
+    environmentMode,
+    createdAt: overrides.createdAt ?? now
+  });
+
+  assert.notEqual(provider, null);
+  return provider;
 }
 
 test("Tenant A context cannot run as Tenant B", () => {
@@ -1279,4 +1312,515 @@ test("Sandbox policy cannot stand in for ExecutionPermit", () => {
   });
 
   assert.equal(createExecutionPermit(policy), null);
+});
+
+test("Fake sandbox provider object is denied", () => {
+  const policy = createSandboxPolicy({ capabilities: { filesystemRead: "ALLOW" } });
+  const result = evaluateSandboxProvider({
+    provider: {
+      providerId: "fake_provider",
+      providerType: "testOnly",
+      capabilities: ["filesystemRead"],
+      attestation: {
+        result: "TRUSTED",
+        capabilities: ["filesystemRead"],
+        attestedAt: now
+      },
+      environmentMode: "test",
+      createdAt: now
+    },
+    policy,
+    capability: "filesystemRead",
+    environmentMode: "test"
+  });
+
+  assert.equal(result.decision, "DENIED");
+});
+
+test("Copied sandbox provider object is denied", () => {
+  const provider = sandboxProvider();
+  const copiedProvider = { ...provider };
+  const policy = createSandboxPolicy({ capabilities: { filesystemRead: "ALLOW" } });
+
+  assert.equal(isSandboxProvider(copiedProvider), false);
+  assert.equal(
+    evaluateSandboxProvider({
+      provider: copiedProvider,
+      policy,
+      capability: "filesystemRead",
+      environmentMode: "test"
+    }).decision,
+    "DENIED"
+  );
+});
+
+test("Mutated sandbox provider cannot gain authority", () => {
+  const provider = sandboxProvider();
+  const policy = createSandboxPolicy({ capabilities: { shell: "ALLOW" } });
+
+  assert.throws(() => {
+    provider.capabilities.push("shell");
+  }, TypeError);
+  assert.throws(() => {
+    provider.attestation.capabilities.push("shell");
+  }, TypeError);
+
+  assert.equal(
+    evaluateSandboxProvider({
+      provider,
+      policy,
+      capability: "shell",
+      environmentMode: "test"
+    }).decision,
+    "DENIED"
+  );
+});
+
+test("Prototype-swapped sandbox provider is blocked", () => {
+  const provider = sandboxProvider();
+
+  assert.throws(() => {
+    Object.setPrototypeOf(provider, { providerType: "productionDistributed" });
+  }, TypeError);
+  assert.equal(isSandboxProvider(provider), true);
+});
+
+test("Object.create sandbox provider forgery is denied", () => {
+  const provider = sandboxProvider();
+  const forgedProvider = Object.create(provider);
+  const policy = createSandboxPolicy({ capabilities: { filesystemRead: "ALLOW" } });
+
+  assert.equal(
+    evaluateSandboxProvider({
+      provider: forgedProvider,
+      policy,
+      capability: "filesystemRead",
+      environmentMode: "test"
+    }).decision,
+    "DENIED"
+  );
+});
+
+test("Proxy sandbox provider attack is denied", () => {
+  const provider = sandboxProvider();
+  const proxyProvider = new Proxy(provider, {
+    get(target, property, receiver) {
+      if (property === "capabilities") {
+        return ["filesystemRead", "shell"];
+      }
+
+      return Reflect.get(target, property, receiver);
+    }
+  });
+  const policy = createSandboxPolicy({ capabilities: { shell: "ALLOW" } });
+
+  assert.equal(
+    evaluateSandboxProvider({
+      provider: proxyProvider,
+      policy,
+      capability: "shell",
+      environmentMode: "test"
+    }).decision,
+    "DENIED"
+  );
+});
+
+test("Sandbox provider getter side effects fail closed", () => {
+  const hostileProvider = {};
+  Object.defineProperty(hostileProvider, "providerId", {
+    get() {
+      throw new Error("hostile provider getter");
+    }
+  });
+  const policy = createSandboxPolicy({ capabilities: { filesystemRead: "ALLOW" } });
+
+  assert.equal(createSandboxProvider(hostileProvider), null);
+  assert.equal(
+    evaluateSandboxProvider({
+      provider: hostileProvider,
+      policy,
+      capability: "filesystemRead",
+      environmentMode: "test"
+    }).decision,
+    "DENIED"
+  );
+});
+
+test("Sandbox provider UNKNOWN attestation is denied", () => {
+  const provider = sandboxProvider({
+    providerId: "sandbox_unknown_attestation",
+    attestationResult: "UNKNOWN"
+  });
+  const policy = createSandboxPolicy({ capabilities: { filesystemRead: "ALLOW" } });
+
+  assert.equal(
+    evaluateSandboxProvider({
+      provider,
+      policy,
+      capability: "filesystemRead",
+      environmentMode: "test"
+    }).decision,
+    "DENIED"
+  );
+});
+
+test("Sandbox provider UNTRUSTED attestation is denied", () => {
+  const provider = sandboxProvider({
+    providerId: "sandbox_untrusted_attestation",
+    attestationResult: "UNTRUSTED"
+  });
+  const policy = createSandboxPolicy({ capabilities: { filesystemRead: "ALLOW" } });
+
+  assert.equal(
+    evaluateSandboxProvider({
+      provider,
+      policy,
+      capability: "filesystemRead",
+      environmentMode: "test"
+    }).decision,
+    "DENIED"
+  );
+});
+
+test("Sandbox provider with missing attestation is rejected", () => {
+  const provider = createSandboxProvider({
+    providerId: "sandbox_missing_attestation",
+    providerType: "testOnly",
+    capabilities: ["filesystemRead"],
+    environmentMode: "test",
+    createdAt: now
+  });
+
+  assert.equal(provider, null);
+});
+
+test("Sandbox provider rejects raw forged TRUSTED attestation", () => {
+  const provider = createSandboxProvider({
+    providerId: "sandbox_raw_attestation",
+    providerType: "testOnly",
+    capabilities: ["filesystemRead"],
+    attestation: {
+      result: "TRUSTED",
+      providerId: "sandbox_raw_attestation",
+      providerType: "testOnly",
+      environmentMode: "test",
+      capabilities: ["filesystemRead"],
+      attestedAt: now
+    },
+    environmentMode: "test",
+    createdAt: now
+  });
+
+  assert.equal(provider, null);
+});
+
+test("Sandbox provider rejects replayed attestation from another provider", () => {
+  const attestation = createSandboxProviderAttestation({
+    result: "TRUSTED",
+    providerId: "sandbox_attested_provider",
+    providerType: "testOnly",
+    environmentMode: "test",
+    capabilities: ["filesystemRead"],
+    attestedAt: now
+  });
+
+  assert.notEqual(attestation, null);
+  assert.equal(
+    createSandboxProvider({
+      providerId: "sandbox_other_provider",
+      providerType: "testOnly",
+      capabilities: ["filesystemRead"],
+      attestation,
+      environmentMode: "test",
+      createdAt: now
+    }),
+    null
+  );
+});
+
+test("Sandbox provider rejects attestation with provider type mismatch", () => {
+  const attestation = createSandboxProviderAttestation({
+    result: "TRUSTED",
+    providerId: "sandbox_type_mismatch",
+    providerType: "testOnly",
+    environmentMode: "test",
+    capabilities: ["filesystemRead"],
+    attestedAt: now
+  });
+
+  assert.notEqual(attestation, null);
+  assert.equal(
+    createSandboxProvider({
+      providerId: "sandbox_type_mismatch",
+      providerType: "productionDistributed",
+      capabilities: ["filesystemRead"],
+      attestation,
+      environmentMode: "production",
+      createdAt: now
+    }),
+    null
+  );
+});
+
+test("Sandbox provider rejects attestation with environment mismatch", () => {
+  const attestation = createSandboxProviderAttestation({
+    result: "TRUSTED",
+    providerId: "sandbox_environment_mismatch",
+    providerType: "productionDistributed",
+    environmentMode: "staging",
+    capabilities: ["filesystemRead"],
+    attestedAt: now
+  });
+
+  assert.notEqual(attestation, null);
+  assert.equal(
+    createSandboxProvider({
+      providerId: "sandbox_environment_mismatch",
+      providerType: "productionDistributed",
+      capabilities: ["filesystemRead"],
+      attestation,
+      environmentMode: "production",
+      createdAt: now
+    }),
+    null
+  );
+});
+
+test("Sandbox provider with malformed capabilities is rejected", () => {
+  for (const capabilities of [undefined, null, "filesystemRead", ["filesystemRead", "future"], ["shell", "shell"], {}]) {
+    assert.equal(
+      createSandboxProvider({
+        providerId: "sandbox_malformed_capabilities",
+        providerType: "testOnly",
+        capabilities,
+        attestation: {
+          result: "TRUSTED",
+          capabilities,
+          attestedAt: now
+        },
+        environmentMode: "test",
+        createdAt: now
+      }),
+      null
+    );
+  }
+});
+
+test("Sandbox provider rejects inherited environment and provider fields", () => {
+  const inheritedInput = Object.create({
+    providerId: "sandbox_inherited",
+    providerType: "testOnly",
+    capabilities: ["filesystemRead"],
+    attestation: createSandboxProviderAttestation({
+      result: "TRUSTED",
+      providerId: "sandbox_inherited",
+      providerType: "testOnly",
+      environmentMode: "test",
+      capabilities: ["filesystemRead"],
+      attestedAt: now
+    }),
+    environmentMode: "test",
+    createdAt: now
+  });
+
+  assert.equal(createSandboxProvider(inheritedInput), null);
+});
+
+test("Sandbox provider rejects environment confusion values", () => {
+  for (const environmentMode of [undefined, null, "", "PRODUCTION", "production ", " test", {}, [], true]) {
+    assert.equal(
+      createSandboxProviderAttestation({
+        result: "TRUSTED",
+        providerId: "sandbox_environment_confusion",
+        providerType: "testOnly",
+        environmentMode,
+        capabilities: ["filesystemRead"],
+        attestedAt: now
+      }),
+      null
+    );
+  }
+});
+
+test("Sandbox provider rejects productionDistributed provider in test mode", () => {
+  const attestation = createSandboxProviderAttestation({
+    result: "TRUSTED",
+    providerId: "sandbox_prod_in_test",
+    providerType: "productionDistributed",
+    environmentMode: "test",
+    capabilities: ["filesystemRead"],
+    attestedAt: now
+  });
+
+  assert.equal(attestation, null);
+  assert.equal(
+    createSandboxProvider({
+      providerId: "sandbox_prod_in_test",
+      providerType: "productionDistributed",
+      capabilities: ["filesystemRead"],
+      attestation,
+      environmentMode: "test",
+      createdAt: now
+    }),
+    null
+  );
+});
+
+test("Sandbox provider factory fails closed on proxy descriptor traps", () => {
+  const hostileInput = new Proxy({}, {
+    getOwnPropertyDescriptor() {
+      throw new Error("hostile descriptor trap");
+    }
+  });
+
+  assert.equal(createSandboxProvider(hostileInput), null);
+  assert.equal(createSandboxProviderAttestation(hostileInput), null);
+});
+
+test("Sandbox provider attestation rejects getter side effects", () => {
+  const hostileAttestation = {
+    providerId: "sandbox_getter_attestation",
+    providerType: "testOnly",
+    environmentMode: "test",
+    capabilities: ["filesystemRead"],
+    attestedAt: now
+  };
+  Object.defineProperty(hostileAttestation, "result", {
+    get() {
+      return "TRUSTED";
+    }
+  });
+
+  assert.equal(createSandboxProviderAttestation(hostileAttestation), null);
+});
+
+test("Sandbox provider unsupported capability is denied", () => {
+  const provider = sandboxProvider();
+  const policy = createSandboxPolicy({ capabilities: { networkEgress: "ALLOW" } });
+
+  assert.equal(
+    evaluateSandboxProvider({
+      provider,
+      policy,
+      capability: "networkEgress",
+      environmentMode: "test"
+    }).decision,
+    "DENIED"
+  );
+});
+
+test("testOnly sandbox provider is rejected in production", () => {
+  const provider = sandboxProvider({ providerId: "sandbox_test_only" });
+  const policy = createSandboxPolicy({ capabilities: { filesystemRead: "ALLOW" } });
+
+  assert.equal(
+    evaluateSandboxProvider({
+      provider,
+      policy,
+      capability: "filesystemRead",
+      environmentMode: "production"
+    }).decision,
+    "DENIED"
+  );
+});
+
+test("localDevelopment sandbox provider is rejected in production", () => {
+  const provider = sandboxProvider({
+    providerId: "sandbox_local_dev",
+    providerType: "localDevelopment",
+    environmentMode: "development"
+  });
+  const policy = createSandboxPolicy({ capabilities: { filesystemRead: "ALLOW" } });
+
+  assert.equal(
+    evaluateSandboxProvider({
+      provider,
+      policy,
+      capability: "filesystemRead",
+      environmentMode: "production"
+    }).decision,
+    "DENIED"
+  );
+});
+
+test("Missing sandbox provider is denied in production", () => {
+  const policy = createSandboxPolicy({ capabilities: { filesystemRead: "ALLOW" } });
+
+  assert.equal(
+    evaluateSandboxProvider({
+      provider: undefined,
+      policy,
+      capability: "filesystemRead",
+      environmentMode: "production"
+    }).decision,
+    "DENIED"
+  );
+});
+
+test("Sandbox provider cannot replace ExecutionPermit", () => {
+  const provider = sandboxProvider();
+
+  assert.equal(createExecutionPermit(provider), null);
+});
+
+test("Sandbox provider cannot replace RuntimeExecutionPermit or replay protection", async () => {
+  const provider = sandboxProvider();
+  const { permit, identity: executionIdentity } = runtimePermit({ permitId: "runtime_permit_provider_replacement" });
+
+  assert.equal(
+    (await consumeRuntimeExecutionPermit(provider, executionIdentity, now, replayProtection())).decision,
+    "DENIED"
+  );
+  assert.equal(
+    (await consumeRuntimeExecutionPermit(permit, executionIdentity, now, provider)).decision,
+    "DENIED"
+  );
+});
+
+test("Provider supports capability but SandboxPolicy denies it", () => {
+  const provider = sandboxProvider();
+  const policy = createDefaultSandboxPolicy();
+
+  assert.equal(
+    evaluateSandboxProvider({
+      provider,
+      policy,
+      capability: "filesystemRead",
+      environmentMode: "test"
+    }).decision,
+    "DENIED"
+  );
+});
+
+test("SandboxPolicy allows but provider does not support capability", () => {
+  const provider = sandboxProvider({ capabilities: ["filesystemRead"] });
+  const policy = createSandboxPolicy({ capabilities: { shell: "ALLOW" } });
+
+  assert.equal(
+    evaluateSandboxProvider({
+      provider,
+      policy,
+      capability: "shell",
+      environmentMode: "test"
+    }).decision,
+    "DENIED"
+  );
+});
+
+test("Production distributed provider with valid attestation passes only provider gate", () => {
+  const provider = sandboxProvider({
+    providerId: "sandbox_production_distributed",
+    providerType: "productionDistributed",
+    environmentMode: "production"
+  });
+  const policy = createSandboxPolicy({ capabilities: { filesystemRead: "ALLOW" } });
+  const result = evaluateSandboxProvider({
+    provider,
+    policy,
+    capability: "filesystemRead",
+    environmentMode: "production"
+  });
+
+  assert.equal(result.decision, "ALLOWED");
+  assert.equal(createExecutionPermit(result), null);
 });

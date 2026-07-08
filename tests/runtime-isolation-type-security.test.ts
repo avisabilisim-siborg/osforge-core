@@ -6,12 +6,16 @@ import type {
   RuntimeResourceQuota,
   RuntimeExecutionPermit,
   RuntimeIsolationContext,
-  SandboxPolicy
+  SandboxPolicy,
+  SandboxProvider,
+  SandboxProviderAttestation
 } from "../packages/runtime-isolation/src/index.js";
 import {
   createRuntimeExecutionPermit,
   createRuntimeResourceQuota,
-  createSandboxPolicy
+  createSandboxPolicy,
+  createSandboxProviderAttestation,
+  createSandboxProvider
 } from "../packages/runtime-isolation/src/index.js";
 
 declare const executionPermit: ExecutionPermit;
@@ -40,6 +44,24 @@ createSandboxPolicy({
     filesystemRead: "DENY"
   },
   quota: runtimeQuota ?? undefined
+});
+
+const providerAttestation = createSandboxProviderAttestation({
+  providerId: "provider_1",
+  providerType: "testOnly",
+  capabilities: ["filesystemRead"],
+  environmentMode: "test",
+  result: "TRUSTED",
+  attestedAt: "2026-07-09T12:00:00.000Z"
+});
+
+createSandboxProvider({
+  providerId: "provider_1",
+  providerType: "testOnly",
+  capabilities: ["filesystemRead"],
+  attestation: providerAttestation,
+  environmentMode: "test",
+  createdAt: "2026-07-09T12:00:00.000Z"
 });
 
 // @ts-expect-error A plain object cannot forge runtime isolation context.
@@ -105,4 +127,24 @@ const forgedSandboxPolicy: SandboxPolicy = {
     tool: "ALLOW",
     mcp: "ALLOW"
   }
+};
+
+// @ts-expect-error A plain object cannot forge sandbox provider attestation.
+const forgedSandboxProviderAttestation: SandboxProviderAttestation = {
+  result: "TRUSTED",
+  providerId: "provider_1",
+  providerType: "testOnly",
+  environmentMode: "test",
+  capabilities: ["filesystemRead"],
+  attestedAt: "2026-07-09T12:00:00.000Z"
+};
+
+// @ts-expect-error A plain object cannot forge sandbox provider.
+const forgedSandboxProvider: SandboxProvider = {
+  providerId: "provider_1",
+  providerType: "testOnly",
+  capabilities: ["filesystemRead"],
+  attestation: forgedSandboxProviderAttestation,
+  environmentMode: "test",
+  createdAt: "2026-07-09T12:00:00.000Z"
 };

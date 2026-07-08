@@ -9,6 +9,8 @@ const runtimeExecutionPermitBrand: unique symbol = Symbol("runtime_execution_per
 const replayProtectionProviderBrand: unique symbol = Symbol("replay_protection_provider");
 const sandboxPolicyBrand: unique symbol = Symbol("sandbox_policy");
 const runtimeResourceQuotaBrand: unique symbol = Symbol("runtime_resource_quota");
+const sandboxProviderAttestationBrand: unique symbol = Symbol("sandbox_provider_attestation");
+const sandboxProviderBrand: unique symbol = Symbol("sandbox_provider");
 const runtimeIsolationContexts = new WeakSet<object>();
 const executionIdentities = new WeakSet<object>();
 const isolationBoundaryDecisions = new WeakSet<object>();
@@ -18,6 +20,8 @@ const consumedRuntimeExecutionPermitObjects = new WeakSet<object>();
 const replayProtectionProviders = new WeakSet<object>();
 const sandboxPolicies = new WeakSet<object>();
 const runtimeResourceQuotas = new WeakSet<object>();
+const sandboxProviderAttestations = new WeakSet<object>();
+const sandboxProviders = new WeakSet<object>();
 
 export const SANDBOX_CAPABILITIES = [
   "filesystemRead",
@@ -39,6 +43,12 @@ export type RuntimeExecutionMode = "test" | "production";
 export type SandboxCapability = typeof SANDBOX_CAPABILITIES[number];
 
 export type SandboxCapabilityDecision = "ALLOW" | "DENY";
+
+export type SandboxProviderType = "testOnly" | "localDevelopment" | "productionDistributed";
+
+export type SandboxProviderAttestationResult = "TRUSTED" | "UNTRUSTED" | "UNKNOWN";
+
+export type SandboxEnvironmentMode = "test" | "development" | "staging" | "production";
 
 export type RuntimeIsolationRejectionReason =
   | "missing_identity"
@@ -163,6 +173,60 @@ export interface SandboxCapabilityEvaluationRequest {
 export interface SandboxCapabilityEvaluationResult {
   decision: IsolationDecisionStatus;
   reason: string;
+  capability?: SandboxCapability;
+}
+
+export interface SandboxProviderAttestation {
+  readonly [sandboxProviderAttestationBrand]: "sandbox_provider_attestation";
+  readonly result: SandboxProviderAttestationResult;
+  readonly providerId: string;
+  readonly providerType: SandboxProviderType;
+  readonly environmentMode: SandboxEnvironmentMode;
+  readonly capabilities: readonly SandboxCapability[];
+  readonly attestedAt: string;
+}
+
+export interface SandboxProviderAttestationInput {
+  result: unknown;
+  providerId: unknown;
+  providerType: unknown;
+  environmentMode: unknown;
+  capabilities: unknown;
+  attestedAt: unknown;
+}
+
+export interface SandboxProvider {
+  readonly [sandboxProviderBrand]: "sandbox_provider";
+  readonly providerId: string;
+  readonly providerType: SandboxProviderType;
+  readonly capabilities: readonly SandboxCapability[];
+  readonly attestation: SandboxProviderAttestation;
+  readonly environmentMode: SandboxEnvironmentMode;
+  readonly createdAt: string;
+}
+
+export interface SandboxProviderInput {
+  providerId: unknown;
+  providerType: unknown;
+  capabilities: unknown;
+  attestation: unknown;
+  environmentMode: unknown;
+  createdAt: unknown;
+}
+
+export interface SandboxProviderEvaluationRequest {
+  provider: unknown;
+  policy: unknown;
+  capability: unknown;
+  environmentMode: SandboxEnvironmentMode;
+  identity?: unknown;
+  quota?: unknown;
+}
+
+export interface SandboxProviderEvaluationResult {
+  decision: IsolationDecisionStatus;
+  reason: string;
+  providerId?: string;
   capability?: SandboxCapability;
 }
 
@@ -416,6 +480,178 @@ export function evaluateSandboxCapability(
         };
   } catch {
     return { decision: "DENIED", reason: "Sandbox policy evaluation failed closed." };
+  }
+}
+
+export function createSandboxProviderAttestation(
+  input: SandboxProviderAttestationInput
+): SandboxProviderAttestation | null {
+  try {
+    if (typeof input !== "object" || input === null) {
+      return null;
+    }
+
+    const result = ownDataProperty(input, "result");
+    const providerId = ownDataProperty(input, "providerId");
+    const providerType = ownDataProperty(input, "providerType");
+    const environmentMode = ownDataProperty(input, "environmentMode");
+    const capabilitiesInput = ownDataProperty(input, "capabilities");
+    const attestedAt = ownDataProperty(input, "attestedAt");
+    if (
+      !result.ok ||
+      !providerId.ok ||
+      !providerType.ok ||
+      !environmentMode.ok ||
+      !capabilitiesInput.ok ||
+      !attestedAt.ok ||
+      !isSandboxProviderAttestationResult(result.value) ||
+      !isNonEmptyString(providerId.value) ||
+      !isSandboxProviderType(providerType.value) ||
+      !isSandboxEnvironmentMode(environmentMode.value) ||
+      !providerTypeMatchesEnvironment(providerType.value, environmentMode.value) ||
+      !isValidTimestamp(attestedAt.value)
+    ) {
+      return null;
+    }
+
+    const capabilities = normalizeSandboxCapabilities(capabilitiesInput.value);
+    if (!capabilities) {
+      return null;
+    }
+
+    const attestation: SandboxProviderAttestation = {
+      [sandboxProviderAttestationBrand]: "sandbox_provider_attestation",
+      result: result.value,
+      providerId: providerId.value,
+      providerType: providerType.value,
+      environmentMode: environmentMode.value,
+      capabilities,
+      attestedAt: attestedAt.value
+    };
+    sandboxProviderAttestations.add(attestation);
+
+    return deepFreeze(attestation);
+  } catch {
+    return null;
+  }
+}
+
+export function createSandboxProvider(input: SandboxProviderInput): SandboxProvider | null {
+  try {
+    if (typeof input !== "object" || input === null) {
+      return null;
+    }
+
+    const providerId = ownDataProperty(input, "providerId");
+    const providerType = ownDataProperty(input, "providerType");
+    const environmentMode = ownDataProperty(input, "environmentMode");
+    const createdAt = ownDataProperty(input, "createdAt");
+    const capabilitiesInput = ownDataProperty(input, "capabilities");
+    const attestationInput = ownDataProperty(input, "attestation");
+    if (
+      !providerId.ok ||
+      !providerType.ok ||
+      !environmentMode.ok ||
+      !createdAt.ok ||
+      !capabilitiesInput.ok ||
+      !attestationInput.ok ||
+      !isNonEmptyString(providerId.value) ||
+      !isSandboxProviderType(providerType.value) ||
+      !isSandboxEnvironmentMode(environmentMode.value) ||
+      !isValidTimestamp(createdAt.value) ||
+      !providerTypeMatchesEnvironment(providerType.value, environmentMode.value)
+    ) {
+      return null;
+    }
+
+    const capabilities = normalizeSandboxCapabilities(capabilitiesInput.value);
+    if (
+      !capabilities ||
+      !isSandboxProviderAttestation(attestationInput.value) ||
+      !sandboxProviderAttestationMatches(
+        attestationInput.value,
+        providerId.value,
+        providerType.value,
+        environmentMode.value,
+        capabilities
+      )
+    ) {
+      return null;
+    }
+
+    const provider: SandboxProvider = {
+      [sandboxProviderBrand]: "sandbox_provider",
+      providerId: providerId.value,
+      providerType: providerType.value,
+      capabilities,
+      attestation: attestationInput.value,
+      environmentMode: environmentMode.value,
+      createdAt: createdAt.value
+    };
+    sandboxProviders.add(provider);
+
+    return deepFreeze(provider);
+  } catch {
+    return null;
+  }
+}
+
+export function evaluateSandboxProvider(
+  request: SandboxProviderEvaluationRequest
+): SandboxProviderEvaluationResult {
+  try {
+    if (typeof request !== "object" || request === null) {
+      return { decision: "DENIED", reason: "Sandbox provider evaluation request is required." };
+    }
+
+    if (!isSandboxEnvironmentMode(request.environmentMode)) {
+      return { decision: "DENIED", reason: "Sandbox environment mode is malformed." };
+    }
+
+    if (!isSandboxProvider(request.provider)) {
+      return { decision: "DENIED", reason: "Sandbox provider is required." };
+    }
+
+    const provider = request.provider;
+    if (provider.environmentMode !== request.environmentMode) {
+      return { decision: "DENIED", reason: "Sandbox provider environment mismatch." };
+    }
+
+    if (request.environmentMode === "production" && provider.providerType !== "productionDistributed") {
+      return { decision: "DENIED", reason: "Production requires distributed sandbox provider." };
+    }
+
+    if (provider.attestation.result !== "TRUSTED") {
+      return { decision: "DENIED", reason: "Sandbox provider attestation is not trusted." };
+    }
+
+    if (!isSandboxCapability(request.capability)) {
+      return { decision: "DENIED", reason: "Sandbox capability is missing or unknown." };
+    }
+
+    const capability = request.capability;
+    if (!provider.capabilities.includes(capability) || !provider.attestation.capabilities.includes(capability)) {
+      return { decision: "DENIED", reason: "Sandbox provider does not support capability." };
+    }
+
+    const policyResult = evaluateSandboxCapability({
+      policy: request.policy,
+      capability,
+      identity: request.identity,
+      quota: request.quota
+    });
+    if (policyResult.decision !== "ALLOWED") {
+      return { decision: "DENIED", reason: "Sandbox policy denied provider capability.", providerId: provider.providerId };
+    }
+
+    return {
+      decision: "ALLOWED",
+      reason: "Sandbox provider boundary is trusted and policy allowed capability.",
+      providerId: provider.providerId,
+      capability
+    };
+  } catch {
+    return { decision: "DENIED", reason: "Sandbox provider evaluation failed closed." };
   }
 }
 
@@ -745,6 +981,33 @@ export function isSandboxPolicy(value: unknown): value is SandboxPolicy {
   );
 }
 
+export function isSandboxProvider(value: unknown): value is SandboxProvider {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    sandboxProviders.has(value) &&
+    sandboxProviderBrand in value &&
+    (value as SandboxProvider)[sandboxProviderBrand] === "sandbox_provider" &&
+    isNonEmptyString((value as SandboxProvider).providerId) &&
+    isSandboxProviderType((value as SandboxProvider).providerType) &&
+    isSandboxEnvironmentMode((value as SandboxProvider).environmentMode) &&
+    isValidTimestamp((value as SandboxProvider).createdAt) &&
+    providerTypeMatchesEnvironment(
+      (value as SandboxProvider).providerType,
+      (value as SandboxProvider).environmentMode
+    ) &&
+    isSandboxCapabilityArray((value as SandboxProvider).capabilities) &&
+    isSandboxProviderAttestation((value as SandboxProvider).attestation) &&
+    sandboxProviderAttestationMatches(
+      (value as SandboxProvider).attestation,
+      (value as SandboxProvider).providerId,
+      (value as SandboxProvider).providerType,
+      (value as SandboxProvider).environmentMode,
+      (value as SandboxProvider).capabilities
+    )
+  );
+}
+
 function validateRuntimeIsolationContextInput(
   input: RuntimeIsolationContextInput
 ): RuntimeIsolationValidationResult {
@@ -946,6 +1209,33 @@ function isSandboxCapabilityDecision(value: unknown): value is SandboxCapability
   return value === "ALLOW" || value === "DENY";
 }
 
+function isSandboxProviderType(value: unknown): value is SandboxProviderType {
+  return value === "testOnly" || value === "localDevelopment" || value === "productionDistributed";
+}
+
+function isSandboxProviderAttestationResult(value: unknown): value is SandboxProviderAttestationResult {
+  return value === "TRUSTED" || value === "UNTRUSTED" || value === "UNKNOWN";
+}
+
+function isSandboxEnvironmentMode(value: unknown): value is SandboxEnvironmentMode {
+  return value === "test" || value === "development" || value === "staging" || value === "production";
+}
+
+function providerTypeMatchesEnvironment(
+  providerType: SandboxProviderType,
+  environmentMode: SandboxEnvironmentMode
+): boolean {
+  if (providerType === "testOnly") {
+    return environmentMode === "test";
+  }
+
+  if (providerType === "localDevelopment") {
+    return environmentMode === "development";
+  }
+
+  return environmentMode === "staging" || environmentMode === "production";
+}
+
 function isSandboxCapabilitySet(value: unknown): value is SandboxCapabilitySet {
   if (typeof value !== "object" || value === null) {
     return false;
@@ -955,6 +1245,61 @@ function isSandboxCapabilitySet(value: unknown): value is SandboxCapabilitySet {
   return SANDBOX_CAPABILITIES.every((capability) =>
     isSandboxCapabilityDecision(capabilities[capability])
   );
+}
+
+function isSandboxCapabilityArray(value: unknown): value is readonly SandboxCapability[] {
+  return (
+    Array.isArray(value) &&
+    value.every(isSandboxCapability) &&
+    new Set(value).size === value.length
+  );
+}
+
+function normalizeSandboxCapabilities(value: unknown): readonly SandboxCapability[] | null {
+  if (!isSandboxCapabilityArray(value)) {
+    return null;
+  }
+
+  return deepFreeze([...value]);
+}
+
+function isSandboxProviderAttestation(value: unknown): value is SandboxProviderAttestation {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    sandboxProviderAttestations.has(value) &&
+    sandboxProviderAttestationBrand in value &&
+    (value as SandboxProviderAttestation)[sandboxProviderAttestationBrand] === "sandbox_provider_attestation" &&
+    isSandboxProviderAttestationResult((value as SandboxProviderAttestation).result) &&
+    isNonEmptyString((value as SandboxProviderAttestation).providerId) &&
+    isSandboxProviderType((value as SandboxProviderAttestation).providerType) &&
+    isSandboxEnvironmentMode((value as SandboxProviderAttestation).environmentMode) &&
+    providerTypeMatchesEnvironment(
+      (value as SandboxProviderAttestation).providerType,
+      (value as SandboxProviderAttestation).environmentMode
+    ) &&
+    isSandboxCapabilityArray((value as SandboxProviderAttestation).capabilities) &&
+    isValidTimestamp((value as SandboxProviderAttestation).attestedAt)
+  );
+}
+
+function sandboxProviderAttestationMatches(
+  attestation: SandboxProviderAttestation,
+  providerId: string,
+  providerType: SandboxProviderType,
+  environmentMode: SandboxEnvironmentMode,
+  capabilities: readonly SandboxCapability[]
+): boolean {
+  return (
+    attestation.providerId === providerId &&
+    attestation.providerType === providerType &&
+    attestation.environmentMode === environmentMode &&
+    sameCapabilityList(capabilities, attestation.capabilities)
+  );
+}
+
+function sameCapabilityList(left: readonly SandboxCapability[], right: readonly SandboxCapability[]): boolean {
+  return left.length === right.length && left.every((capability) => right.includes(capability));
 }
 
 function snapshotReplayProtectionStore(
@@ -1031,6 +1376,22 @@ function isAtOrBefore(value: string, now: string): boolean {
   const valueTime = Date.parse(value);
   const nowTime = Date.parse(now);
   return Number.isFinite(valueTime) && Number.isFinite(nowTime) && valueTime <= nowTime;
+}
+
+function isValidTimestamp(value: unknown): value is string {
+  return isNonEmptyString(value) && Number.isFinite(Date.parse(value));
+}
+
+function ownDataProperty(
+  value: object,
+  property: string
+): { ok: true; value: unknown } | { ok: false } {
+  const descriptor = Object.getOwnPropertyDescriptor(value, property);
+  if (!descriptor || !("value" in descriptor)) {
+    return { ok: false };
+  }
+
+  return { ok: true, value: descriptor.value };
 }
 
 function isNonEmptyString(value: unknown): value is string {
