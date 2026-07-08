@@ -3,11 +3,15 @@ import type {
   ExecutionIdentity,
   IsolationBoundaryDecision,
   ReplayProtectionProvider,
+  RuntimeResourceQuota,
   RuntimeExecutionPermit,
-  RuntimeIsolationContext
+  RuntimeIsolationContext,
+  SandboxPolicy
 } from "../packages/runtime-isolation/src/index.js";
 import {
-  createRuntimeExecutionPermit
+  createRuntimeExecutionPermit,
+  createRuntimeResourceQuota,
+  createSandboxPolicy
 } from "../packages/runtime-isolation/src/index.js";
 
 declare const executionPermit: ExecutionPermit;
@@ -22,6 +26,20 @@ createRuntimeExecutionPermit({
   issuedAt: "2026-07-09T11:59:00.000Z",
   expiresAt: "2026-07-09T12:10:00.000Z",
   now: "2026-07-09T12:00:00.000Z"
+});
+
+const runtimeQuota = createRuntimeResourceQuota({
+  maxCpuTimeMs: 1000,
+  maxMemoryBytes: 1048576,
+  maxExecutionTimeMs: 5000,
+  maxProcesses: 1
+});
+
+createSandboxPolicy({
+  capabilities: {
+    filesystemRead: "DENY"
+  },
+  quota: runtimeQuota ?? undefined
 });
 
 // @ts-expect-error A plain object cannot forge runtime isolation context.
@@ -64,5 +82,27 @@ const forgedReplayProvider: ReplayProtectionProvider = {
     claim() {
       return { decision: "ALLOWED", reason: "forged" };
     }
+  }
+};
+
+// @ts-expect-error A plain object cannot forge runtime resource quota.
+const forgedQuota: RuntimeResourceQuota = {
+  maxCpuTimeMs: 1000,
+  maxMemoryBytes: 1048576,
+  maxExecutionTimeMs: 5000,
+  maxProcesses: 1
+};
+
+// @ts-expect-error A plain object cannot forge sandbox policy.
+const forgedSandboxPolicy: SandboxPolicy = {
+  capabilities: {
+    filesystemRead: "ALLOW",
+    filesystemWrite: "ALLOW",
+    networkEgress: "ALLOW",
+    shell: "ALLOW",
+    childProcess: "ALLOW",
+    container: "ALLOW",
+    tool: "ALLOW",
+    mcp: "ALLOW"
   }
 };

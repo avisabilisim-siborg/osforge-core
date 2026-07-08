@@ -11,9 +11,13 @@ import {
   InMemoryReplayProtectionStore,
   consumeRuntimeExecutionPermit,
   createExecutionIdentity,
+  createDefaultSandboxPolicy,
   createReplayProtectionProvider,
+  createRuntimeResourceQuota,
   createRuntimeExecutionPermit,
+  createSandboxPolicy,
   createRuntimeIsolationContext,
+  evaluateSandboxCapability,
   evaluateRuntimeExecutionGate,
   evaluateIsolationBoundary,
   isExecutionIdentity,
@@ -858,4 +862,421 @@ test("Unknown actorType is rejected", () => {
 
 test("NaN executionId is rejected", () => {
   assert.equal(runtimeContext({ executionId: NaN }), null);
+});
+
+test("Sandbox policy is required for capability evaluation", () => {
+  const result = evaluateSandboxCapability({
+    policy: undefined,
+    capability: "filesystemRead"
+  });
+
+  assert.equal(result.decision, "DENIED");
+});
+
+test("Default sandbox policy denies every capability", () => {
+  const policy = createDefaultSandboxPolicy();
+
+  for (const capability of [
+    "filesystemRead",
+    "filesystemWrite",
+    "networkEgress",
+    "shell",
+    "childProcess",
+    "container",
+    "tool",
+    "mcp"
+  ]) {
+    assert.equal(evaluateSandboxCapability({ policy, capability }).decision, "DENIED");
+  }
+});
+
+test("Empty sandbox policy denies all capabilities", () => {
+  const policy = createSandboxPolicy({});
+
+  assert.notEqual(policy, null);
+  assert.equal(evaluateSandboxCapability({ policy, capability: "filesystemRead" }).decision, "DENIED");
+  assert.equal(evaluateSandboxCapability({ policy, capability: "networkEgress" }).decision, "DENIED");
+  assert.equal(evaluateSandboxCapability({ policy, capability: "shell" }).decision, "DENIED");
+});
+
+test("Sandbox policy allows only explicitly named capability", () => {
+  const policy = createSandboxPolicy({
+    capabilities: {
+      filesystemRead: "ALLOW"
+    }
+  });
+
+  assert.notEqual(policy, null);
+  assert.equal(evaluateSandboxCapability({ policy, capability: "filesystemRead" }).decision, "ALLOWED");
+  assert.equal(evaluateSandboxCapability({ policy, capability: "filesystemWrite" }).decision, "DENIED");
+  assert.equal(evaluateSandboxCapability({ policy, capability: "networkEgress" }).decision, "DENIED");
+  assert.equal(evaluateSandboxCapability({ policy, capability: "shell" }).decision, "DENIED");
+});
+
+test("Unknown sandbox capability is denied", () => {
+  const policy = createDefaultSandboxPolicy();
+  const result = evaluateSandboxCapability({
+    policy,
+    capability: "futureCapability"
+  });
+
+  assert.equal(result.decision, "DENIED");
+});
+
+test("Missing sandbox capability is denied", () => {
+  const policy = createDefaultSandboxPolicy();
+  const result = evaluateSandboxCapability({
+    policy
+  });
+
+  assert.equal(result.decision, "DENIED");
+});
+
+test("Malformed sandbox capability is denied", () => {
+  const policy = createDefaultSandboxPolicy();
+  const values = [null, undefined, "", "   ", 123, true, NaN, {}, [], Symbol("filesystemRead")];
+
+  for (const capability of values) {
+    assert.equal(evaluateSandboxCapability({ policy, capability }).decision, "DENIED");
+  }
+});
+
+test("Malformed sandbox policy is denied", () => {
+  const policies = [
+    null,
+    undefined,
+    "",
+    123,
+    {},
+    { capabilities: {} },
+    { capabilities: { filesystemRead: "ALLOW" } },
+    { status: "ALLOWED" }
+  ];
+
+  for (const policy of policies) {
+    assert.equal(evaluateSandboxCapability({ policy, capability: "filesystemRead" }).decision, "DENIED");
+  }
+});
+
+test("Sandbox policy mutation after validation cannot gain authority", () => {
+  const policy = createDefaultSandboxPolicy();
+
+  assert.throws(() => {
+    policy.capabilities.shell = "ALLOW";
+  }, TypeError);
+
+  assert.equal(evaluateSandboxCapability({ policy, capability: "shell" }).decision, "DENIED");
+});
+
+test("Sandbox policy prototype swap after validation cannot gain authority", () => {
+  const policy = createDefaultSandboxPolicy();
+
+  assert.throws(() => {
+    Object.setPrototypeOf(policy, {
+      capabilities: {
+        ...policy.capabilities,
+        shell: "ALLOW"
+      }
+    });
+  }, TypeError);
+
+  assert.equal(evaluateSandboxCapability({ policy, capability: "shell" }).decision, "DENIED");
+});
+
+test("Copied sandbox policy cannot gain authority", () => {
+  const policy = createDefaultSandboxPolicy();
+  const copiedPolicy = {
+    ...policy,
+    capabilities: {
+      ...policy.capabilities,
+      shell: "ALLOW"
+    }
+  };
+
+  assert.equal(evaluateSandboxCapability({ policy: copiedPolicy, capability: "shell" }).decision, "DENIED");
+});
+
+test("Object.create sandbox policy forgery cannot gain authority", () => {
+  const policy = createDefaultSandboxPolicy();
+  const forgedPolicy = Object.create(policy);
+
+  assert.throws(() => {
+    forgedPolicy.capabilities = {
+      ...policy.capabilities,
+      shell: "ALLOW"
+    };
+  }, TypeError);
+
+  assert.equal(evaluateSandboxCapability({ policy: forgedPolicy, capability: "shell" }).decision, "DENIED");
+});
+
+test("Sandbox policy prototype mutation cannot gain authority", () => {
+  const policy = createDefaultSandboxPolicy();
+
+  assert.throws(() => {
+    Object.setPrototypeOf(policy.capabilities, { shell: "ALLOW" });
+  }, TypeError);
+
+  assert.equal(evaluateSandboxCapability({ policy, capability: "shell" }).decision, "DENIED");
+});
+
+test("Forged plain sandbox policy object is denied", () => {
+  const forgedPolicy = {
+    capabilities: {
+      filesystemRead: "ALLOW",
+      filesystemWrite: "ALLOW",
+      networkEgress: "ALLOW",
+      shell: "ALLOW",
+      childProcess: "ALLOW",
+      container: "ALLOW",
+      tool: "ALLOW",
+      mcp: "ALLOW"
+    }
+  };
+
+  assert.equal(evaluateSandboxCapability({ policy: forgedPolicy, capability: "shell" }).decision, "DENIED");
+});
+
+test("Forged sandbox policy with copied brand symbol is denied", () => {
+  const policy = createDefaultSandboxPolicy();
+  const [brand] = Object.getOwnPropertySymbols(policy);
+  const forgedPolicy = {
+    [brand]: policy[brand],
+    capabilities: {
+      ...policy.capabilities,
+      shell: "ALLOW"
+    }
+  };
+
+  assert.equal(evaluateSandboxCapability({ policy: forgedPolicy, capability: "shell" }).decision, "DENIED");
+});
+
+test("Proxy sandbox policy attack fails closed", () => {
+  const policy = createDefaultSandboxPolicy();
+  const proxyPolicy = new Proxy(policy, {
+    get(target, property, receiver) {
+      if (property === "capabilities") {
+        return {
+          ...target.capabilities,
+          shell: "ALLOW"
+        };
+      }
+
+      return Reflect.get(target, property, receiver);
+    }
+  });
+
+  assert.equal(evaluateSandboxCapability({ policy: proxyPolicy, capability: "shell" }).decision, "DENIED");
+});
+
+test("Throwing sandbox policy getter fails closed", () => {
+  const hostilePolicy = {};
+  Object.defineProperty(hostilePolicy, "capabilities", {
+    get() {
+      throw new Error("hostile capabilities getter");
+    }
+  });
+
+  assert.equal(evaluateSandboxCapability({ policy: hostilePolicy, capability: "shell" }).decision, "DENIED");
+});
+
+test("AI Agent receives no special sandbox privilege", () => {
+  const agentContext = clone(baseContext);
+  agentContext.actor = {
+    id: "agent_2",
+    type: "ai_agent",
+    displayName: "Agent Two",
+    tenantId: "tenant_1",
+    organizationId: "org_1",
+    workspaceId: "workspace_1"
+  };
+  const agentIdentity = identity({ context: agentContext, executionId: "agent_sandbox_execution" });
+  const policy = createDefaultSandboxPolicy();
+
+  assert.equal(
+    evaluateSandboxCapability({
+      policy,
+      capability: "tool",
+      identity: agentIdentity
+    }).decision,
+    "DENIED"
+  );
+});
+
+test("DigitalEmployee receives no special sandbox privilege", () => {
+  const digitalContext = clone(baseContext);
+  digitalContext.actor = {
+    id: "digital_2",
+    type: "digital_employee",
+    displayName: "Digital Two",
+    tenantId: "tenant_1",
+    organizationId: "org_1",
+    workspaceId: "workspace_1"
+  };
+  const digitalIdentity = identity({ context: digitalContext, executionId: "digital_sandbox_execution" });
+  const policy = createDefaultSandboxPolicy();
+
+  assert.equal(
+    evaluateSandboxCapability({
+      policy,
+      capability: "mcp",
+      identity: digitalIdentity
+    }).decision,
+    "DENIED"
+  );
+});
+
+test("Runtime resource quota accepts only positive finite integers", () => {
+  const quota = createRuntimeResourceQuota({
+    maxCpuTimeMs: 1000,
+    maxMemoryBytes: 1048576,
+    maxExecutionTimeMs: 5000,
+    maxProcesses: 1
+  });
+
+  assert.notEqual(quota, null);
+  assert.equal(
+    evaluateSandboxCapability({
+      policy: createSandboxPolicy({ quota }),
+      capability: "filesystemRead",
+      quota
+    }).decision,
+    "DENIED"
+  );
+});
+
+test("Invalid runtime resource quotas are rejected", () => {
+  const invalidValues = [
+    NaN,
+    Infinity,
+    -Infinity,
+    -1,
+    0,
+    1.5,
+    "1",
+    1n,
+    Number.MAX_SAFE_INTEGER + 1,
+    Number.MAX_VALUE,
+    null,
+    undefined,
+    {}
+  ];
+
+  for (const value of invalidValues) {
+    assert.equal(
+      createRuntimeResourceQuota({
+        maxCpuTimeMs: value,
+        maxMemoryBytes: 1048576,
+        maxExecutionTimeMs: 5000,
+        maxProcesses: 1
+      }),
+      null
+    );
+    assert.equal(
+      createRuntimeResourceQuota({
+        maxCpuTimeMs: 1000,
+        maxMemoryBytes: value,
+        maxExecutionTimeMs: 5000,
+        maxProcesses: 1
+      }),
+      null
+    );
+    assert.equal(
+      createRuntimeResourceQuota({
+        maxCpuTimeMs: 1000,
+        maxMemoryBytes: 1048576,
+        maxExecutionTimeMs: value,
+        maxProcesses: 1
+      }),
+      null
+    );
+    assert.equal(
+      createRuntimeResourceQuota({
+        maxCpuTimeMs: 1000,
+        maxMemoryBytes: 1048576,
+        maxExecutionTimeMs: 5000,
+        maxProcesses: value
+      }),
+      null
+    );
+  }
+});
+
+test("Runtime resource quota mutation after validation cannot gain unsafe values", () => {
+  const quota = createRuntimeResourceQuota({
+    maxCpuTimeMs: 1000,
+    maxMemoryBytes: 1048576,
+    maxExecutionTimeMs: 5000,
+    maxProcesses: 1
+  });
+
+  assert.notEqual(quota, null);
+  assert.throws(() => {
+    quota.maxProcesses = Number.MAX_SAFE_INTEGER + 1;
+  }, TypeError);
+  assert.notEqual(createSandboxPolicy({ quota }), null);
+});
+
+test("Forged runtime resource quota with copied brand symbol is denied", () => {
+  const quota = createRuntimeResourceQuota({
+    maxCpuTimeMs: 1000,
+    maxMemoryBytes: 1048576,
+    maxExecutionTimeMs: 5000,
+    maxProcesses: 1
+  });
+  const [brand] = Object.getOwnPropertySymbols(quota);
+  const forgedQuota = {
+    [brand]: quota[brand],
+    maxCpuTimeMs: 1000,
+    maxMemoryBytes: 1048576,
+    maxExecutionTimeMs: 5000,
+    maxProcesses: 1
+  };
+
+  assert.equal(createSandboxPolicy({ quota: forgedQuota }), null);
+  assert.equal(
+    evaluateSandboxCapability({
+      policy: createDefaultSandboxPolicy(),
+      capability: "filesystemRead",
+      quota: forgedQuota
+    }).decision,
+    "DENIED"
+  );
+});
+
+test("Throwing quota getter fails closed", () => {
+  const hostileQuota = {};
+  Object.defineProperty(hostileQuota, "maxCpuTimeMs", {
+    get() {
+      throw new Error("hostile quota getter");
+    }
+  });
+
+  assert.equal(createRuntimeResourceQuota(hostileQuota), null);
+});
+
+test("Malformed quota in sandbox capability request is denied", () => {
+  const policy = createDefaultSandboxPolicy();
+  const result = evaluateSandboxCapability({
+    policy,
+    capability: "filesystemRead",
+    quota: {
+      maxCpuTimeMs: 1000,
+      maxMemoryBytes: 1048576,
+      maxExecutionTimeMs: 5000,
+      maxProcesses: 1
+    }
+  });
+
+  assert.equal(result.decision, "DENIED");
+});
+
+test("Sandbox policy cannot stand in for ExecutionPermit", () => {
+  const policy = createSandboxPolicy({
+    capabilities: {
+      filesystemRead: "ALLOW"
+    }
+  });
+
+  assert.equal(createExecutionPermit(policy), null);
 });

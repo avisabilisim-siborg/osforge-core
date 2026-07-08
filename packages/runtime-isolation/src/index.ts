@@ -7,6 +7,8 @@ const executionIdentityBrand: unique symbol = Symbol("execution_identity");
 const isolationBoundaryDecisionBrand: unique symbol = Symbol("isolation_boundary_decision");
 const runtimeExecutionPermitBrand: unique symbol = Symbol("runtime_execution_permit");
 const replayProtectionProviderBrand: unique symbol = Symbol("replay_protection_provider");
+const sandboxPolicyBrand: unique symbol = Symbol("sandbox_policy");
+const runtimeResourceQuotaBrand: unique symbol = Symbol("runtime_resource_quota");
 const runtimeIsolationContexts = new WeakSet<object>();
 const executionIdentities = new WeakSet<object>();
 const isolationBoundaryDecisions = new WeakSet<object>();
@@ -14,12 +16,29 @@ const runtimeExecutionPermits = new WeakSet<object>();
 const basePermitsWithRuntimePermit = new WeakSet<object>();
 const consumedRuntimeExecutionPermitObjects = new WeakSet<object>();
 const replayProtectionProviders = new WeakSet<object>();
+const sandboxPolicies = new WeakSet<object>();
+const runtimeResourceQuotas = new WeakSet<object>();
+
+export const SANDBOX_CAPABILITIES = [
+  "filesystemRead",
+  "filesystemWrite",
+  "networkEgress",
+  "shell",
+  "childProcess",
+  "container",
+  "tool",
+  "mcp"
+] as const;
 
 export type RuntimeActorType = ActorType | "ai_agent";
 
 export type IsolationDecisionStatus = "ALLOWED" | "DENIED";
 
 export type RuntimeExecutionMode = "test" | "production";
+
+export type SandboxCapability = typeof SANDBOX_CAPABILITIES[number];
+
+export type SandboxCapabilityDecision = "ALLOW" | "DENY";
 
 export type RuntimeIsolationRejectionReason =
   | "missing_identity"
@@ -104,6 +123,47 @@ export interface RuntimeExecutionPermitRequest {
 export interface RuntimePermitConsumptionResult {
   decision: IsolationDecisionStatus;
   reason: string;
+}
+
+export type SandboxCapabilitySet = Readonly<Record<SandboxCapability, SandboxCapabilityDecision>>;
+
+export interface RuntimeResourceQuota {
+  readonly [runtimeResourceQuotaBrand]: "runtime_resource_quota";
+  readonly maxCpuTimeMs: number;
+  readonly maxMemoryBytes: number;
+  readonly maxExecutionTimeMs: number;
+  readonly maxProcesses: number;
+}
+
+export interface RuntimeResourceQuotaInput {
+  maxCpuTimeMs: unknown;
+  maxMemoryBytes: unknown;
+  maxExecutionTimeMs: unknown;
+  maxProcesses: unknown;
+}
+
+export interface SandboxPolicy {
+  readonly [sandboxPolicyBrand]: "sandbox_policy";
+  readonly capabilities: SandboxCapabilitySet;
+  readonly quota?: RuntimeResourceQuota;
+}
+
+export interface SandboxPolicyInput {
+  capabilities?: Partial<Record<SandboxCapability, SandboxCapabilityDecision>>;
+  quota?: RuntimeResourceQuota;
+}
+
+export interface SandboxCapabilityEvaluationRequest {
+  policy: unknown;
+  capability: unknown;
+  identity?: unknown;
+  quota?: unknown;
+}
+
+export interface SandboxCapabilityEvaluationResult {
+  decision: IsolationDecisionStatus;
+  reason: string;
+  capability?: SandboxCapability;
 }
 
 export interface ReplayProtectionKey {
@@ -238,6 +298,124 @@ export function createReplayProtectionProvider(
     return deepFreeze(provider);
   } catch {
     return null;
+  }
+}
+
+export function createRuntimeResourceQuota(input: RuntimeResourceQuotaInput): RuntimeResourceQuota | null {
+  try {
+    if (typeof input !== "object" || input === null) {
+      return null;
+    }
+
+    if (
+      !isPositiveInteger(input.maxCpuTimeMs) ||
+      !isPositiveInteger(input.maxMemoryBytes) ||
+      !isPositiveInteger(input.maxExecutionTimeMs) ||
+      !isPositiveInteger(input.maxProcesses)
+    ) {
+      return null;
+    }
+
+    const quota: RuntimeResourceQuota = {
+      [runtimeResourceQuotaBrand]: "runtime_resource_quota",
+      maxCpuTimeMs: input.maxCpuTimeMs,
+      maxMemoryBytes: input.maxMemoryBytes,
+      maxExecutionTimeMs: input.maxExecutionTimeMs,
+      maxProcesses: input.maxProcesses
+    };
+    runtimeResourceQuotas.add(quota);
+
+    return deepFreeze(quota);
+  } catch {
+    return null;
+  }
+}
+
+export function createDefaultSandboxPolicy(): SandboxPolicy {
+  return createSandboxPolicy({}) as SandboxPolicy;
+}
+
+export function createSandboxPolicy(input: SandboxPolicyInput): SandboxPolicy | null {
+  try {
+    if (typeof input !== "object" || input === null) {
+      return null;
+    }
+
+    if (input.quota !== undefined && !isRuntimeResourceQuota(input.quota)) {
+      return null;
+    }
+
+    const capabilityInput = input.capabilities;
+    const capabilities = defaultSandboxCapabilities();
+    if (capabilityInput !== undefined) {
+      if (typeof capabilityInput !== "object" || capabilityInput === null || Array.isArray(capabilityInput)) {
+        return null;
+      }
+
+      for (const [capability, decision] of Object.entries(capabilityInput)) {
+        if (!isSandboxCapability(capability) || !isSandboxCapabilityDecision(decision)) {
+          return null;
+        }
+
+        capabilities[capability] = decision;
+      }
+    }
+
+    const policy: SandboxPolicy = {
+      [sandboxPolicyBrand]: "sandbox_policy",
+      capabilities: deepFreeze(capabilities),
+      ...(input.quota ? { quota: input.quota } : {})
+    };
+    sandboxPolicies.add(policy);
+
+    return deepFreeze(policy);
+  } catch {
+    return null;
+  }
+}
+
+export function evaluateSandboxCapability(
+  request: SandboxCapabilityEvaluationRequest
+): SandboxCapabilityEvaluationResult {
+  try {
+    if (typeof request !== "object" || request === null) {
+      return { decision: "DENIED", reason: "Sandbox policy evaluation request is required." };
+    }
+
+    if (!isSandboxPolicy(request.policy)) {
+      return { decision: "DENIED", reason: "Sandbox policy is required." };
+    }
+
+    if (!isSandboxCapability(request.capability)) {
+      return { decision: "DENIED", reason: "Sandbox capability is missing or unknown." };
+    }
+
+    if (request.identity !== undefined && !isExecutionIdentity(request.identity)) {
+      return { decision: "DENIED", reason: "Sandbox identity binding is invalid." };
+    }
+
+    if (request.quota !== undefined && !isRuntimeResourceQuota(request.quota)) {
+      return { decision: "DENIED", reason: "Runtime resource quota is malformed." };
+    }
+
+    const policyQuota = request.policy.quota;
+    if (policyQuota !== undefined && !isRuntimeResourceQuota(policyQuota)) {
+      return { decision: "DENIED", reason: "Sandbox policy quota is malformed." };
+    }
+
+    return request.policy.capabilities[request.capability] === "ALLOW"
+      ? {
+          decision: "ALLOWED",
+          reason: "Sandbox capability is explicitly allowed.",
+          capability: request.capability
+        }
+      : {
+          decision: "DENIED",
+          reason: "Sandbox capability is denied by default.",
+          capability: request.capability
+        };
+  } catch {
+    return { decision: "DENIED", reason: "Sandbox policy evaluation failed closed." };
   }
 }
 
@@ -541,6 +719,32 @@ export function isReplayProtectionProvider(value: unknown): value is ReplayProte
   );
 }
 
+export function isRuntimeResourceQuota(value: unknown): value is RuntimeResourceQuota {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    runtimeResourceQuotas.has(value) &&
+    runtimeResourceQuotaBrand in value &&
+    (value as RuntimeResourceQuota)[runtimeResourceQuotaBrand] === "runtime_resource_quota" &&
+    isPositiveInteger((value as RuntimeResourceQuota).maxCpuTimeMs) &&
+    isPositiveInteger((value as RuntimeResourceQuota).maxMemoryBytes) &&
+    isPositiveInteger((value as RuntimeResourceQuota).maxExecutionTimeMs) &&
+    isPositiveInteger((value as RuntimeResourceQuota).maxProcesses)
+  );
+}
+
+export function isSandboxPolicy(value: unknown): value is SandboxPolicy {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    sandboxPolicies.has(value) &&
+    sandboxPolicyBrand in value &&
+    (value as SandboxPolicy)[sandboxPolicyBrand] === "sandbox_policy" &&
+    isSandboxCapabilitySet((value as SandboxPolicy).capabilities) &&
+    ((value as SandboxPolicy).quota === undefined || isRuntimeResourceQuota((value as SandboxPolicy).quota))
+  );
+}
+
 function validateRuntimeIsolationContextInput(
   input: RuntimeIsolationContextInput
 ): RuntimeIsolationValidationResult {
@@ -721,6 +925,38 @@ function isDistributedReplayProtectionStore(value: unknown): value is Distribute
   );
 }
 
+function defaultSandboxCapabilities(): Record<SandboxCapability, SandboxCapabilityDecision> {
+  return {
+    filesystemRead: "DENY",
+    filesystemWrite: "DENY",
+    networkEgress: "DENY",
+    shell: "DENY",
+    childProcess: "DENY",
+    container: "DENY",
+    tool: "DENY",
+    mcp: "DENY"
+  };
+}
+
+function isSandboxCapability(value: unknown): value is SandboxCapability {
+  return typeof value === "string" && (SANDBOX_CAPABILITIES as readonly string[]).includes(value);
+}
+
+function isSandboxCapabilityDecision(value: unknown): value is SandboxCapabilityDecision {
+  return value === "ALLOW" || value === "DENY";
+}
+
+function isSandboxCapabilitySet(value: unknown): value is SandboxCapabilitySet {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+
+  const capabilities = value as Record<SandboxCapability, unknown>;
+  return SANDBOX_CAPABILITIES.every((capability) =>
+    isSandboxCapabilityDecision(capabilities[capability])
+  );
+}
+
 function snapshotReplayProtectionStore(
   mode: RuntimeExecutionMode,
   store: ReplayProtectionStore
@@ -799,6 +1035,10 @@ function isAtOrBefore(value: string, now: string): boolean {
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
+}
+
+function isPositiveInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
 }
 
 function deepFreeze<T extends object>(value: T): T {
