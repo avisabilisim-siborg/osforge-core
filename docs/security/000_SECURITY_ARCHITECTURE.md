@@ -92,6 +92,8 @@ A customer-facing feature is not production-ready until all security layers it d
 
 Security dependencies block feature readiness. They are not optional roadmap notes.
 
+Security controls are prerequisites, not future improvements.
+
 ## Security Sprint Order
 
 ### Sprint 2: Context, Policy and Isolation Foundation
@@ -115,7 +117,7 @@ Security dependencies block feature readiness. They are not optional roadmap not
 ### Sprint 5: Runtime Isolation
 
 - Must be completed before: Agent Runtime, Digital Workforce runtime, Tool/MCP execution.
-- Depends on: Sprint 2, Sprint 4.
+- Depends on: Sprint 2, Sprint 3, Sprint 4.
 - Scope: process/runtime isolation, execution sandbox contracts, plugin isolation, AI agent stop controls.
 
 ### Sprint 6: Detection and Response
@@ -148,7 +150,49 @@ Security dependencies block feature readiness. They are not optional roadmap not
 - Depends on: Sprint 5, Sprint 6.
 - Scope: dependency provenance, package integrity, plugin signing, connector review, build/release audit.
 
-## Current Sprint 2 Coverage
+### Sprint 11: Tool and MCP Security Boundary
+
+- Must be completed before: external tool production calls, MCP connector production calls, tool-originated writes.
+- Depends on: Sprint 5, Sprint 6, Sprint 10.
+- Scope: connector identity, Tool/MCP trust boundary, output classification, confused deputy defenses, connector kill switches.
+
+### Sprint 12: Secret Access Boundary
+
+- Must be completed before: tool, agent or DigitalEmployee secret use.
+- Depends on: Sprint 4, Sprint 5, Sprint 7, Sprint 10, Sprint 11.
+- Scope: secret broker, scoped grants, redaction, rotation, revocation, audit and no raw secret exposure.
+
+### Sprint 13: Prompt Injection and Tool Output Defense
+
+- Must be completed before: AI execution over external content.
+- Depends on: Sprint 5, Sprint 6, Sprint 11, Sprint 12.
+- Scope: direct prompt injection, indirect prompt injection, malicious tool output, instruction hierarchy, quarantine.
+
+### Sprint 14: Memory and Learning Security
+
+- Must be completed before: persistent memory, learning and autonomous improvement.
+- Depends on: Sprint 2, Sprint 4, Sprint 6, Sprint 13.
+- Scope: tenant-bound memory, memory provenance, retention, deletion, poisoning detection and memory audit.
+
+### Sprint 15: DLP and Exfiltration Defense
+
+- Must be completed before: sensitive production data processing.
+- Depends on: Sprint 5, Sprint 11, Sprint 12, Sprint 13, Sprint 14.
+- Scope: data classification, redaction, export policy, approved destinations, egress monitoring and audit.
+
+### Sprint 16: Cloud and Production Hardening
+
+- Must be completed before: public production deployment.
+- Depends on: Sprint 5 through Sprint 15.
+- Scope: cloud IAM least privilege, KMS, network segmentation, secret rotation, quotas, observability and infrastructure audit.
+
+### Sprint 17: Final Launch Security Validation
+
+- Must be completed before: production-ready declaration.
+- Depends on: Sprint 5 through Sprint 16.
+- Scope: red-team validation, abuse testing, recovery drills, restore drills, supply-chain checks, secret rotation drills and final launch approval.
+
+## Completed Security Coverage
 
 Sprint 2 currently covers the core authorization boundary:
 
@@ -160,4 +204,6 @@ Sprint 2 currently covers the core authorization boundary:
 - Critical action runtime hardening.
 - Branded final execution decision and execution permit boundary.
 
-The edge, identity, runtime sandbox, detection, lockdown, recovery, backup and supply chain layers are mandatory future sprints before dependent customer features can be production-ready.
+Sprint 3 covers the edge boundary. Sprint 4 covers identity, MFA and break-glass recovery contracts.
+
+The runtime sandbox, detection, lockdown, recovery operations, backup security, supply-chain security, Tool/MCP boundary, secret boundary, prompt-injection defense, memory security, DLP, cloud hardening and final launch validation layers are mandatory future sprints before dependent customer features can be production-ready.
