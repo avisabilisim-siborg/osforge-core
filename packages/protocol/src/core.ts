@@ -1,4 +1,4 @@
-export type ActorType = "human_user" | "digital_employee" | "system" | "external_service";
+export type ActorType = "human_user" | "digital_employee" | "ai_agent" | "system" | "external_service";
 
 export interface Tenant {
   id: string;

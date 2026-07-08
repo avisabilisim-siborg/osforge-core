@@ -22,6 +22,8 @@ export type ExecutionPermission = "GRANTED" | "DENIED" | "REQUIRES_APPROVAL";
 
 const finalExecutionDecisionBrand: unique symbol = Symbol("final_execution_decision");
 const executionPermitBrand: unique symbol = Symbol("execution_permit");
+const finalExecutionDecisions = new WeakSet<object>();
+const executionPermits = new WeakSet<object>();
 
 export interface ExecutionGateCheck {
   name: ExecutionGateCheckName;
@@ -146,16 +148,31 @@ export function createExecutionPermit(decision: FinalExecutionDecision): Executi
     return null;
   }
 
-  return {
+  const permit: ExecutionPermit = {
     [executionPermitBrand]: "execution_permit",
     decision
   };
+  executionPermits.add(permit);
+
+  return Object.freeze(permit);
+}
+
+export function isExecutionPermit(value: unknown): value is ExecutionPermit {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    executionPermits.has(value) &&
+    executionPermitBrand in value &&
+    (value as ExecutionPermit)[executionPermitBrand] === "execution_permit" &&
+    isFinalExecutionDecision((value as ExecutionPermit).decision)
+  );
 }
 
 export function isFinalExecutionDecision(value: unknown): value is FinalExecutionDecision {
   return (
     typeof value === "object" &&
     value !== null &&
+    finalExecutionDecisions.has(value) &&
     finalExecutionDecisionBrand in value &&
     (value as FinalExecutionDecision)[finalExecutionDecisionBrand] === "final_execution_decision"
   );
@@ -166,14 +183,17 @@ function executionGateResult(
   checks: ExecutionGateCheck[],
   reason: string
 ): ExecutionGateResult {
+  const finalDecision: FinalExecutionDecision = {
+    [finalExecutionDecisionBrand]: "final_execution_decision",
+    status: permission,
+    checks,
+    reason
+  };
+  finalExecutionDecisions.add(finalDecision);
+
   return {
     permission,
-    finalDecision: {
-      [finalExecutionDecisionBrand]: "final_execution_decision",
-      status: permission,
-      checks,
-      reason
-    },
+    finalDecision,
     checks
   };
 }

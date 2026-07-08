@@ -24,6 +24,9 @@
       ],
       "#identity": [
         "packages/identity/src/index.ts"
+      ],
+      "#runtime-isolation": [
+        "packages/runtime-isolation/src/index.ts"
       ]
     }
   },

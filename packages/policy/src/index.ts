@@ -33,6 +33,7 @@ export type {
 export {
   createExecutionPermit,
   evaluateExecutionGate,
+  isExecutionPermit,
   isFinalExecutionDecision
 } from "./execution-gate.js";
 
