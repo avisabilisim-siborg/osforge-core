@@ -7,6 +7,10 @@
     "tests/type-security.test.ts",
     "tests/edge-type-security.test.ts",
     "tests/identity-type-security.test.ts",
-    "tests/runtime-isolation-type-security.test.ts"
+    "tests/runtime-isolation-type-security.test.ts",
+    "tests/pipeline-type-security.test.ts",
+    "tests/kernel-type-security.test.ts",
+    "tests/runtime-type-security.test.ts",
+    "tests/adapter-type-security.test.ts"
   ]
 }
