@@ -11,6 +11,7 @@
     "tests/pipeline-type-security.test.ts",
     "tests/kernel-type-security.test.ts",
     "tests/runtime-type-security.test.ts",
-    "tests/adapter-type-security.test.ts"
+    "tests/adapter-type-security.test.ts",
+    "tests/hardening-type-security.test.ts"
   ]
 }
