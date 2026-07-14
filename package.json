@@ -16,7 +16,13 @@
   "scripts": {
     "build": "tsc",
     "test": "npm run build && node --test tests/*.test.mjs",
-    "typecheck": "tsc --noEmit && tsc -p tsconfig.type-tests.json"
+    "test:security": "npm run build && node --test tests/pipeline-permit-security.test.mjs tests/pipeline-approval-security.test.mjs tests/pipeline-integration-security.test.mjs tests/runtime-admission-security.test.mjs tests/runtime-isolation-quota.test.mjs tests/runtime-concurrency.test.mjs tests/runtime-resilience.test.mjs tests/runtime-snapshot-checkpoint.test.mjs tests/adapter-replay-audit.test.mjs tests/adapter-checkpoint-secret.test.mjs tests/adapter-registry-readiness.test.mjs tests/adapter-clock-id.test.mjs tests/adapter-eventbus.test.mjs tests/hardening-supply-artifact.test.mjs tests/hardening-plugin-config.test.mjs tests/hardening-flags-upgrade.test.mjs tests/hardening-recovery-lockdown.test.mjs tests/hardening-policy-revocation-readiness.test.mjs tests/ci-guards.test.mjs",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.type-tests.json",
+    "ci:guard": "node scripts/ci/repository-guard.mjs",
+    "ci:secret-scan": "node scripts/ci/secret-scan.mjs",
+    "ci:constitution": "node scripts/ci/constitution-check.mjs",
+    "ci:focused-guard": "node scripts/ci/detect-focused-tests.mjs",
+    "ci:validate-workflow": "node scripts/ci/validate-workflow.mjs"
   },
   "devDependencies": {
     "typescript": "^5.5.0"

@@ -1,0 +1,168 @@
+name: Core CI
+
+# Secure, fail-closed verification pipeline (P0.4.6). No deployment.
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Least privilege: read-only by default. No job requests write.
+permissions:
+  contents: read
+
+# One in-flight run per ref. Cancel superseded PR runs, but never cancel a main
+# validation.
+concurrency:
+  group: core-ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  NODE_VERSION: "24.15.0"
+
+jobs:
+  repository-guard:
+    name: A · Repository guard
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Hygiene guard (conflicts, forbidden files, whitespace)
+        run: npm run ci:guard
+      - name: No silent test skipping (focused/skip guard)
+        run: npm run ci:focused-guard
+
+  typecheck:
+    name: B · Typecheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - name: Typecheck (includes type-security type tests)
+        run: npm run typecheck
+
+  tests:
+    name: C · Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - name: Full test suite
+        run: npm test
+
+  security-tests:
+    name: D · Security tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - name: Type-security tests
+        run: npx tsc -p tsconfig.type-tests.json
+      - name: Adversarial / isolation / replay / approval / runtime / hardening tests
+        run: npm run test:security
+
+  dependency-audit:
+    name: E · Dependency audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - name: Report full audit to the job summary
+        run: |
+          {
+            echo '### Dependency audit'
+            echo '```'
+            npm audit || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Fail on high or critical vulnerabilities
+        run: npm audit --audit-level=high
+
+  secret-scan:
+    name: F · Secret scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Technology-neutral secret scan
+        run: npm run ci:secret-scan
+
+  constitution-check:
+    name: G · Constitution guard
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: Constitution existence + reference + principle guard
+        run: npm run ci:constitution
+
+  final-gate:
+    name: H · Final security gate
+    needs:
+      - repository-guard
+      - typecheck
+      - tests
+      - security-tests
+      - dependency-audit
+      - secret-scan
+      - constitution-check
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Require every mandatory job to have succeeded
+        run: |
+          results="${{ needs.repository-guard.result }} ${{ needs.typecheck.result }} ${{ needs.tests.result }} ${{ needs.security-tests.result }} ${{ needs.dependency-audit.result }} ${{ needs.secret-scan.result }} ${{ needs.constitution-check.result }}"
+          echo "Required job results: ${results}"
+          for r in ${results}; do
+            if [ "${r}" != "success" ]; then
+              echo "CORE_CI_REJECTED"
+              exit 1
+            fi
+          done
+          echo "CORE_CI_READY"
