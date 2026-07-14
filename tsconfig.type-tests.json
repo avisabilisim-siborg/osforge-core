@@ -13,6 +13,7 @@
     "tests/runtime-type-security.test.ts",
     "tests/adapter-type-security.test.ts",
     "tests/hardening-type-security.test.ts",
-    "tests/memory-type-security.test.ts"
+    "tests/memory-type-security.test.ts",
+    "tests/identity-trust-type-security.test.ts"
   ]
 }
