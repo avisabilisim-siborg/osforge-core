@@ -17,6 +17,7 @@
     "tests/identity-trust-type-security.test.ts",
     "tests/event-foundation-type-security.test.ts",
     "tests/governance-type-security.test.ts",
-    "tests/agent-runtime-type-security.test.ts"
+    "tests/agent-runtime-type-security.test.ts",
+    "tests/production-adapters-type-security.test.ts"
   ]
 }
