@@ -27,6 +27,12 @@
       ],
       "#runtime-isolation": [
         "packages/runtime-isolation/src/index.ts"
+      ],
+      "#governance": [
+        "packages/governance/src/index.ts"
+      ],
+      "#agent-runtime": [
+        "packages/agent-runtime/src/index.ts"
       ]
     }
   },
