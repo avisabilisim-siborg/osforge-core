@@ -21,6 +21,7 @@
     "tests/production-adapters-type-security.test.ts",
     "tests/agent-execution-type-security.test.ts",
     "tests/tool-firewall-type-security.test.ts",
-    "tests/secret-access-type-security.test.ts"
+    "tests/secret-access-type-security.test.ts",
+    "tests/detection-type-security.test.ts"
   ]
 }
