@@ -21,3 +21,9 @@ yarn-debug.log*
 Thumbs.db
 .idea/
 .vscode/
+
+# Local backup artifacts (backups are written OUTSIDE the repo; never commit them)
+/backups/
+*.bundle
+*.bundle.sha256
+*.manifest.json
