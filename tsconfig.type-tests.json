@@ -19,6 +19,7 @@
     "tests/governance-type-security.test.ts",
     "tests/agent-runtime-type-security.test.ts",
     "tests/production-adapters-type-security.test.ts",
-    "tests/agent-execution-type-security.test.ts"
+    "tests/agent-execution-type-security.test.ts",
+    "tests/tool-firewall-type-security.test.ts"
   ]
 }
