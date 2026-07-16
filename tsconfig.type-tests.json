@@ -25,6 +25,7 @@
     "tests/detection-type-security.test.ts",
     "tests/content-trust-type-security.test.ts",
     "tests/prompt-firewall-type-security.test.ts",
-    "tests/agent-safety-type-security.test.ts"
+    "tests/agent-safety-type-security.test.ts",
+    "tests/tenant-boundary-type-security.test.ts"
   ]
 }
