@@ -33,7 +33,7 @@ function seededCore() {
     moduleKey: "tv_service",
     brand: "Vestel",
     model: "55U9500",
-    attributes: { screenSizeInches: 55, panelType: "LED" },
+    attributes: { tvKind: "LED_TV", screenSizeInches: 55, panelType: "LED" },
     createdAt: NOW
   }, NOW);
   core.openWorkOrder(a, { id: workOrderId("wo-a"), customerId: customerId("cust-a"), deviceId: deviceId("dev-a"), reportedProblem: "No picture" }, NOW);

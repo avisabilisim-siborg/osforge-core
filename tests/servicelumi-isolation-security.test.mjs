@@ -25,7 +25,7 @@ function seededCore() {
     moduleKey: "tv_service",
     brand: "Vestel",
     model: "55U9500",
-    attributes: { screenSizeInches: 55, panelType: "LED" },
+    attributes: { tvKind: "LED_TV", screenSizeInches: 55, panelType: "LED" },
     createdAt: NOW
   }, NOW);
   core.openWorkOrder(a, { id: workOrderId("wo-a"), customerId: customerId("cust-a"), deviceId: deviceId("dev-a"), reportedProblem: "No picture" }, NOW);
@@ -111,7 +111,7 @@ test("adversarial: module enablement in one tenant never leaks to another", () =
     moduleKey: "tv_service",
     brand: "X",
     model: "Y",
-    attributes: { screenSizeInches: 40, panelType: "LED" },
+    attributes: { tvKind: "LED_TV", screenSizeInches: 40, panelType: "LED" },
     createdAt: NOW
   }, NOW);
   assert.equal(write.decision, "WRITE_DENIED");

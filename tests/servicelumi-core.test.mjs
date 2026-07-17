@@ -38,7 +38,7 @@ function intakeTvDevice(core) {
     moduleKey: "tv_service",
     brand: "Vestel",
     model: "55U9500",
-    attributes: { screenSizeInches: 55, panelType: "LED", smartTv: true },
+    attributes: { tvKind: "LED_TV", screenSizeInches: 55, panelType: "LED", smartTv: true },
     createdAt: NOW
   }, NOW).decision, "WRITE_ACCEPTED");
 }
@@ -83,7 +83,7 @@ test("device registration validates module attributes and denies unknown or malf
     moduleKey: "tv_service",
     brand: "Vestel",
     model: "55U9500",
-    attributes: { screenSizeInches: 55, panelType: "LED", notDeclared: "x" },
+    attributes: { tvKind: "LED_TV", screenSizeInches: 55, panelType: "LED", notDeclared: "x" },
     createdAt: NOW
   }, NOW);
   assert.equal(unknownAttr.decision, "WRITE_DENIED");
@@ -94,7 +94,7 @@ test("device registration validates module attributes and denies unknown or malf
     moduleKey: "tv_service",
     brand: "Vestel",
     model: "55U9500",
-    attributes: { screenSizeInches: 55, panelType: "CRT" },
+    attributes: { tvKind: "LED_TV", screenSizeInches: 55, panelType: "CRT" },
     createdAt: NOW
   }, NOW);
   assert.equal(badEnum.decision, "WRITE_DENIED");
