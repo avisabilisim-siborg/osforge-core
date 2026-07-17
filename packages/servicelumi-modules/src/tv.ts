@@ -11,10 +11,16 @@ export const TV_SERVICE_MODULE: ServiceModuleDefinition = Object.freeze({
   displayName: "TV Technical Service",
   deviceNoun: "television",
   deviceAttributes: Object.freeze([
+    Object.freeze({ name: "tvKind", kind: "enum", required: true, enumValues: Object.freeze(["LED_TV", "OLED_TV", "QLED_TV", "MONITOR", "PROJECTION"]) } as const),
     Object.freeze({ name: "screenSizeInches", kind: "number", required: true } as const),
     Object.freeze({ name: "panelType", kind: "enum", required: true, enumValues: Object.freeze(["LED", "OLED", "QLED", "LCD", "PLASMA"]) } as const),
     Object.freeze({ name: "smartTv", kind: "boolean", required: false } as const),
-    Object.freeze({ name: "chassisNo", kind: "string", required: false } as const)
+    Object.freeze({ name: "chassisNo", kind: "string", required: false } as const),
+    Object.freeze({ name: "panelCode", kind: "string", required: false } as const),
+    Object.freeze({ name: "mainBoardCode", kind: "string", required: false } as const),
+    Object.freeze({ name: "powerBoardCode", kind: "string", required: false } as const),
+    Object.freeze({ name: "tconCode", kind: "string", required: false } as const),
+    Object.freeze({ name: "ledBarCode", kind: "string", required: false } as const)
   ]),
   faultTaxonomy: Object.freeze([
     Object.freeze({ code: "TV_NO_POWER", label: "No power / does not turn on" }),
@@ -30,7 +36,13 @@ export const TV_SERVICE_MODULE: ServiceModuleDefinition = Object.freeze({
   intakeChecklist: Object.freeze([
     "Record visible panel damage before accepting the device",
     "Record whether the remote control and stand are included",
-    "Photograph the serial label if present",
+    "Photograph the serial label if present (before photo)",
     "Confirm the reported problem with the customer"
+  ]),
+  qualityChecklist: Object.freeze([
+    "Panel inspection completed",
+    "Backlight test completed",
+    "Picture and sound test completed",
+    "After photo captured"
   ])
 });

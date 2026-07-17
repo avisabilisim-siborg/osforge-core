@@ -12,9 +12,14 @@ export const COMPUTER_SERVICE_MODULE: ServiceModuleDefinition = Object.freeze({
   deviceAttributes: Object.freeze([
     Object.freeze({ name: "formFactor", kind: "enum", required: true, enumValues: Object.freeze(["DESKTOP", "LAPTOP", "ALL_IN_ONE", "SERVER"]) } as const),
     Object.freeze({ name: "cpu", kind: "string", required: false } as const),
+    Object.freeze({ name: "gpu", kind: "string", required: false } as const),
     Object.freeze({ name: "ramGb", kind: "number", required: false } as const),
     Object.freeze({ name: "storageDescription", kind: "string", required: false } as const),
-    Object.freeze({ name: "hasCustomerDataOnDisk", kind: "boolean", required: true } as const)
+    Object.freeze({ name: "operatingSystem", kind: "string", required: false } as const),
+    Object.freeze({ name: "batteryHealthPct", kind: "number", required: false } as const),
+    Object.freeze({ name: "hasCustomerDataOnDisk", kind: "boolean", required: true } as const),
+    Object.freeze({ name: "dataBackupConsent", kind: "boolean", required: true } as const),
+    Object.freeze({ name: "dataAccessConsent", kind: "boolean", required: true } as const)
   ]),
   faultTaxonomy: Object.freeze([
     Object.freeze({ code: "PC_NO_POWER", label: "No power / does not start" }),
@@ -30,8 +35,14 @@ export const COMPUTER_SERVICE_MODULE: ServiceModuleDefinition = Object.freeze({
   ]),
   intakeChecklist: Object.freeze([
     "Record whether the customer has a backup of their data",
+    "Record explicit data backup and data access consent (never note passwords or PINs)",
     "Record accessories received (charger, bag, cables)",
     "Record visible case damage before accepting the device",
     "Confirm whether data recovery is in scope"
+  ]),
+  qualityChecklist: Object.freeze([
+    "Disk health test completed",
+    "Temperature/stress test completed",
+    "Boot and OS check completed"
   ])
 });

@@ -12,7 +12,12 @@ export const PHONE_SERVICE_MODULE: ServiceModuleDefinition = Object.freeze({
   deviceAttributes: Object.freeze([
     Object.freeze({ name: "deviceKind", kind: "enum", required: true, enumValues: Object.freeze(["PHONE", "TABLET", "SMARTWATCH"]) } as const),
     Object.freeze({ name: "imei", kind: "string", required: false } as const),
+    Object.freeze({ name: "imei2", kind: "string", required: false } as const),
+    Object.freeze({ name: "color", kind: "string", required: false } as const),
     Object.freeze({ name: "storageGb", kind: "number", required: false } as const),
+    Object.freeze({ name: "batteryHealthPct", kind: "number", required: false } as const),
+    Object.freeze({ name: "liquidContact", kind: "enum", required: true, enumValues: Object.freeze(["NONE", "SUSPECTED", "CONFIRMED"]) } as const),
+    Object.freeze({ name: "partQualityClass", kind: "enum", required: false, enumValues: Object.freeze(["ORIGINAL", "OEM", "A_PLUS", "REFURBISHED"]) } as const),
     Object.freeze({ name: "screenLockShared", kind: "boolean", required: true } as const)
   ]),
   faultTaxonomy: Object.freeze([
@@ -31,5 +36,11 @@ export const PHONE_SERVICE_MODULE: ServiceModuleDefinition = Object.freeze({
     "Record whether the customer shared the screen lock (never store the code itself in notes)",
     "Record IMEI from the device or box when available",
     "Advise the customer that liquid-damage repairs carry no warranty"
+  ]),
+  qualityChecklist: Object.freeze([
+    "Screen and touch test completed",
+    "Camera test completed",
+    "Case/frame inspection completed",
+    "Call and network test completed"
   ])
 });

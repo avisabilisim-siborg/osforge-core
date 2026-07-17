@@ -13,6 +13,10 @@ export const APPLIANCE_SERVICE_MODULE: ServiceModuleDefinition = Object.freeze({
   deviceAttributes: Object.freeze([
     Object.freeze({ name: "applianceKind", kind: "enum", required: true, enumValues: Object.freeze(["WASHING_MACHINE", "REFRIGERATOR", "DISHWASHER", "OVEN", "DRYER", "AIR_CONDITIONER"]) } as const),
     Object.freeze({ name: "onSiteService", kind: "boolean", required: true } as const),
+    Object.freeze({ name: "serviceAddress", kind: "string", required: false } as const),
+    Object.freeze({ name: "fieldAppointmentAt", kind: "string", required: false } as const),
+    Object.freeze({ name: "manufacturerFaultCode", kind: "string", required: false } as const),
+    Object.freeze({ name: "secondVisitNeeded", kind: "boolean", required: false } as const),
     Object.freeze({ name: "productionYear", kind: "number", required: false } as const)
   ]),
   faultTaxonomy: Object.freeze([
@@ -31,5 +35,21 @@ export const APPLIANCE_SERVICE_MODULE: ServiceModuleDefinition = Object.freeze({
     "Record model and serial label information",
     "Record visible transport damage before accepting the appliance",
     "Confirm water/electric installation conditions for on-site visits"
-  ])
+  ]),
+  qualityChecklist: Object.freeze([
+    "Electrical safety check completed",
+    "Water safety check completed (if water-connected)",
+    "Gas safety check completed (if gas-connected)",
+    "Function test completed",
+    "Customer signature captured"
+  ]),
+  hazardAttribute: "applianceKind",
+  hazardCertifications: Object.freeze({
+    WASHING_MACHINE: Object.freeze(["ELECTRIC_SAFE", "WATER_SAFE"]),
+    REFRIGERATOR: Object.freeze(["ELECTRIC_SAFE"]),
+    DISHWASHER: Object.freeze(["ELECTRIC_SAFE", "WATER_SAFE"]),
+    OVEN: Object.freeze(["ELECTRIC_SAFE", "GAS_SAFE"]),
+    DRYER: Object.freeze(["ELECTRIC_SAFE"]),
+    AIR_CONDITIONER: Object.freeze(["ELECTRIC_SAFE"])
+  })
 });
