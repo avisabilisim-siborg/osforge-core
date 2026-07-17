@@ -24,6 +24,7 @@ export const BOARD_COLUMNS: readonly WorkOrderState[] = Object.freeze([
   "QUOTE_PENDING_APPROVAL",
   "APPROVED",
   "IN_REPAIR",
+  "WAITING_PARTS",
   "TESTING",
   "READY_FOR_PICKUP",
   "DELIVERED",

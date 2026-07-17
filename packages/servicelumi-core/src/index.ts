@@ -14,4 +14,6 @@ export * from "./module.js";
 export * from "./customer.js";
 export * from "./device.js";
 export * from "./workorder.js";
+export * from "./technician.js";
+export * from "./privacy.js";
 export * from "./core.js";

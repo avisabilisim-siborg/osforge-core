@@ -10,6 +10,7 @@ import type { ActorId, TenantScope } from "../../tenant-boundary/src/index.js";
 import { decide } from "../../tenant-boundary/src/index.js";
 import type { TenantDecision } from "../../tenant-boundary/src/index.js";
 import type { CustomerApprovalRef, CustomerId, DeviceId, ServiceModuleKey, WorkOrderId } from "./types.js";
+import type { TechnicianId } from "./technician.js";
 
 export type WorkOrderState =
   | "RECEIVED"
@@ -17,6 +18,7 @@ export type WorkOrderState =
   | "QUOTE_PENDING_APPROVAL"
   | "APPROVED"
   | "IN_REPAIR"
+  | "WAITING_PARTS"
   | "TESTING"
   | "READY_FOR_PICKUP"
   | "DELIVERED"
@@ -28,7 +30,8 @@ const LEGAL_TRANSITIONS: Readonly<Record<WorkOrderState, readonly WorkOrderState
   DIAGNOSING: Object.freeze<WorkOrderState[]>(["QUOTE_PENDING_APPROVAL", "CANCELLED"]),
   QUOTE_PENDING_APPROVAL: Object.freeze<WorkOrderState[]>(["APPROVED", "CANCELLED"]),
   APPROVED: Object.freeze<WorkOrderState[]>(["IN_REPAIR", "CANCELLED"]),
-  IN_REPAIR: Object.freeze<WorkOrderState[]>(["TESTING", "CANCELLED"]),
+  IN_REPAIR: Object.freeze<WorkOrderState[]>(["TESTING", "WAITING_PARTS", "CANCELLED"]),
+  WAITING_PARTS: Object.freeze<WorkOrderState[]>(["IN_REPAIR", "CANCELLED"]),
   TESTING: Object.freeze<WorkOrderState[]>(["IN_REPAIR", "READY_FOR_PICKUP", "CANCELLED"]),
   READY_FOR_PICKUP: Object.freeze<WorkOrderState[]>(["DELIVERED"]),
   DELIVERED: Object.freeze<WorkOrderState[]>([]),
@@ -53,6 +56,29 @@ export interface WorkOrderTransitionEntry {
   readonly reasonCode: string;
 }
 
+/** A spare part consumed during the repair. */
+export interface PartUsage {
+  readonly partCode: string;
+  readonly description: string;
+  readonly qualityClass?: string;
+  readonly recordedAt: string;
+}
+
+/** One completed quality-control checklist item. */
+export interface QualityCheckEntry {
+  readonly item: string;
+  readonly passed: boolean;
+  readonly checkedBy: ActorId;
+  readonly checkedAt: string;
+}
+
+/** Warranty granted at delivery. */
+export interface WarrantyRecord {
+  readonly months: number;
+  readonly startsAt: string;
+  readonly terms: string;
+}
+
 export interface WorkOrderRecord {
   readonly id: WorkOrderId;
   readonly scope: TenantScope;
@@ -65,6 +91,14 @@ export interface WorkOrderRecord {
   readonly diagnosisNote?: string;
   readonly quote?: WorkOrderQuote;
   readonly customerApproval?: CustomerApprovalRef;
+  readonly assignedTechnicianId?: TechnicianId;
+  readonly partsUsed: readonly PartUsage[];
+  readonly qualityChecks: readonly QualityCheckEntry[];
+  readonly warranty?: WarrantyRecord;
+  /** Opaque reference to a captured customer signature; never the image itself. */
+  readonly customerSignatureRef?: string;
+  /** Opaque photo references (before/after). Never binary content. */
+  readonly photoRefs: readonly string[];
   readonly history: readonly WorkOrderTransitionEntry[];
   readonly createdAt: string;
 }
@@ -123,8 +157,50 @@ export function newWorkOrder(input: {
     state: "RECEIVED",
     reportedProblem: input.reportedProblem,
     faultCodes: Object.freeze([]),
+    partsUsed: Object.freeze([]),
+    qualityChecks: Object.freeze([]),
+    photoRefs: Object.freeze([]),
     history: Object.freeze([]),
     createdAt: input.createdAt
+  });
+}
+
+/** States in which repair-side edits (parts, QC, photos, assignment) are allowed. */
+const WORKABLE_STATES: readonly WorkOrderState[] = Object.freeze([
+  "RECEIVED",
+  "DIAGNOSING",
+  "QUOTE_PENDING_APPROVAL",
+  "APPROVED",
+  "IN_REPAIR",
+  "WAITING_PARTS",
+  "TESTING"
+]);
+
+export function isWorkable(state: WorkOrderState): boolean {
+  return WORKABLE_STATES.includes(state);
+}
+
+export function withAssignedTechnician(order: WorkOrderRecord, technicianId: TechnicianId): WorkOrderRecord {
+  return Object.freeze({ ...order, assignedTechnicianId: technicianId });
+}
+
+export function withPartUsage(order: WorkOrderRecord, part: PartUsage): WorkOrderRecord {
+  return Object.freeze({ ...order, partsUsed: Object.freeze([...order.partsUsed, Object.freeze({ ...part })]) });
+}
+
+export function withQualityCheck(order: WorkOrderRecord, entry: QualityCheckEntry): WorkOrderRecord {
+  return Object.freeze({ ...order, qualityChecks: Object.freeze([...order.qualityChecks, Object.freeze({ ...entry })]) });
+}
+
+export function withPhotoRef(order: WorkOrderRecord, photoRef: string): WorkOrderRecord {
+  return Object.freeze({ ...order, photoRefs: Object.freeze([...order.photoRefs, photoRef]) });
+}
+
+export function withWarranty(order: WorkOrderRecord, warranty: WarrantyRecord, customerSignatureRef?: string): WorkOrderRecord {
+  return Object.freeze({
+    ...order,
+    warranty: Object.freeze({ ...warranty }),
+    ...(customerSignatureRef !== undefined ? { customerSignatureRef } : {})
   });
 }
 

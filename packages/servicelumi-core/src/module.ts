@@ -37,6 +37,14 @@ export interface ServiceModuleDefinition {
   readonly deviceAttributes: readonly DeviceAttributeSpec[];
   readonly faultTaxonomy: readonly FaultCode[];
   readonly intakeChecklist: readonly string[];
+  /** Quality-control items every order of this module must pass before delivery. */
+  readonly qualityChecklist?: readonly string[];
+  /**
+   * Safety certifications required to work on a device, keyed by the value of
+   * `hazardAttribute` (e.g. applianceKind). Missing key ⇒ no extra requirement.
+   */
+  readonly hazardAttribute?: string;
+  readonly hazardCertifications?: Readonly<Record<string, readonly string[]>>;
 }
 
 export type ModuleRegistrationStatus = "MODULE_REGISTERED" | "MODULE_REJECTED";
@@ -133,6 +141,15 @@ export class ServiceModuleRegistry {
 
   isEnabled(scope: TenantScope, key: ServiceModuleKey): boolean {
     return this.enablements.some((e) => e.key === key && sameTenantScope(e.scope, scope));
+  }
+
+  /** Disables a module for one tenancy scope. Existing records stay readable; new work is denied. */
+  disableForTenant(scope: TenantScope, key: ServiceModuleKey, now: string): TenantDecision<ModuleAccessStatus> {
+    const index = this.enablements.findIndex((e) => e.key === key && sameTenantScope(e.scope, scope));
+    if (index >= 0) {
+      this.enablements.splice(index, 1);
+    }
+    return this.denied(key, now, "module_disabled_for_tenant", `Module '${key}' is now disabled for this tenant scope (deny-by-default restored).`);
   }
 
   /**

@@ -22,7 +22,7 @@ export interface TechnicianTaskView {
 
 /** Projects already-authorized orders into the technician's open-task list. */
 export function technicianTaskView(orders: readonly WorkOrderRecord[]): readonly TechnicianTaskView[] {
-  const OPEN: readonly WorkOrderState[] = ["APPROVED", "IN_REPAIR", "TESTING"];
+  const OPEN: readonly WorkOrderState[] = ["APPROVED", "IN_REPAIR", "WAITING_PARTS", "TESTING"];
   return Object.freeze(
     orders
       .filter((o) => OPEN.includes(o.state))
