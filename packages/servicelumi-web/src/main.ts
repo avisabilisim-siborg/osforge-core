@@ -6,8 +6,14 @@
  */
 
 /// <reference path="./internal/node-http.d.ts" />
-import { ServiceLumiApp } from "../../servicelumi-app/src/index.js";
+import { ServiceLumiApp, assertDemoBootAllowed } from "../../servicelumi-app/src/index.js";
 import { startServiceLumiWeb } from "./server.js";
+
+// Fail-closed: refuse to boot the test-only demo in a production-like environment.
+assertDemoBootAllowed({
+  nodeEnv: process.env["NODE_ENV"],
+  allowDemoOverride: process.env["SERVICELUMI_ALLOW_DEMO"]
+});
 
 const PORT = Number(process.env["SERVICELUMI_PORT"] ?? "3311");
 

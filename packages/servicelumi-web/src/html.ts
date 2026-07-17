@@ -18,6 +18,21 @@ export function esc(value: string): string {
     .replaceAll("'", "&#39;");
 }
 
+/**
+ * Serializes a value for embedding inside an inline `<script>` block. Plain
+ * `JSON.stringify` does not neutralize `</script>` or the JS line separators
+ * U+2028/U+2029, so a string value could break out of the script context.
+ * Escaping `<` (and those separators) keeps the payload inert even if a value
+ * ever carries attacker-influenced substrings (defense in depth).
+ */
+export function jsonForScript(value: unknown): string {
+  // Build the match set via fromCharCode so no raw line-separator ever appears
+  // in a regex literal (that would be a syntax error). Matches "<" plus the JS
+  // line separators U+2028 / U+2029; each is emitted as an inert escape.
+  const unsafe = new RegExp("[<" + String.fromCharCode(0x2028, 0x2029) + "]", "gu");
+  return JSON.stringify(value).replace(unsafe, (c) => "\\u" + c.charCodeAt(0).toString(16).padStart(4, "0"));
+}
+
 const CSS = `
 :root{color-scheme:light dark;}
 [data-theme="dark"]{--bg:#10151c;--panel:#1a212b;--panel2:#222b37;--text:#e8edf4;--muted:#9aa7b8;--line:#2e3947;--accent:#ff7a1a;--accent-text:#1a1004;--ok:#3ecf6f;--warn:#ffc53d;--err:#ff5d5d;--info:#4aa3ff;}

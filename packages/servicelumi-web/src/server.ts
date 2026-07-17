@@ -27,7 +27,7 @@ import {
 import type { CoreCaller, DeviceAttributeValue, ServiceModuleKey, WorkOrderState } from "../../servicelumi-core/src/index.js";
 import { BOARD_COLUMNS, OfflineSyncGate, technicianTaskView, workOrderBoardView } from "../../servicelumi-surface/src/index.js";
 import type { OfflineOperation } from "../../servicelumi-surface/src/index.js";
-import { esc, page, stateChip } from "./html.js";
+import { esc, jsonForScript, page, stateChip } from "./html.js";
 import type { PageContext } from "./html.js";
 import { t } from "./i18n.js";
 import type { Locale } from "./i18n.js";
@@ -849,7 +849,7 @@ export function createServiceLumiWeb(app: ServiceLumiApp): Server {
         <pre id="syncresult" style="white-space:pre-wrap;font-size:.8rem"></pre>
       </div>
       <script>
-        var SCOPE = { tenantId: ${JSON.stringify(scope.tenantId)}, organizationId: ${JSON.stringify(scope.organizationId)}, workspaceId: ${JSON.stringify(scope.workspaceId)} };
+        var SCOPE = { tenantId: ${jsonForScript(scope.tenantId)}, organizationId: ${jsonForScript(scope.organizationId)}, workspaceId: ${jsonForScript(scope.workspaceId)} };
         function q(){ try { return JSON.parse(localStorage.getItem('slq')||'[]'); } catch(e){ return []; } }
         function renderQ(){ document.getElementById('queueview').textContent = JSON.stringify(q(), null, 1); }
         function queueOp(wo, to){

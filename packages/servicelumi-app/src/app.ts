@@ -22,6 +22,50 @@ export const DEMO_ADAPTER_METADATA = Object.freeze({
   productionReady: false
 });
 
+/**
+ * Fail-closed boot guard (P2.3). The demo composition root is built entirely
+ * from test-only adapters (in-memory store, demo session shell, dev OCR). It
+ * MUST NOT be started in a production-like environment. Enforcing this at the
+ * composition root — not just as declarative `productionReady: false` metadata
+ * — is what stops the demo adapter from silently running in production.
+ *
+ * The boot is refused when the environment reports production, unless an
+ * explicit, auditable override is present (for red-team / staging drills).
+ */
+export type BootGuardStatus = "BOOT_ALLOWED" | "BOOT_REFUSED";
+
+export interface BootGuardResult {
+  readonly status: BootGuardStatus;
+  readonly reason: string;
+}
+
+export function evaluateDemoBoot(env: {
+  readonly nodeEnv?: string;
+  readonly allowDemoOverride?: string;
+}): BootGuardResult {
+  const isProductionLike = (env.nodeEnv ?? "").trim().toLowerCase() === "production";
+  const overridden = env.allowDemoOverride === "i-understand-this-is-a-demo";
+  if (isProductionLike && !overridden) {
+    return {
+      status: "BOOT_REFUSED",
+      reason:
+        `The ServiceLumi demo is built from test-only adapters (${DEMO_ADAPTER_METADATA.id}, ` +
+        "productionReady=false) and refuses to boot with NODE_ENV=production. " +
+        "Wire the production identity, persistence and provider adapters instead, " +
+        "or set SERVICELUMI_ALLOW_DEMO=i-understand-this-is-a-demo for a controlled drill."
+    };
+  }
+  return { status: "BOOT_ALLOWED", reason: "The environment is not production; the demo may boot." };
+}
+
+/** Throws when {@link evaluateDemoBoot} refuses the boot. Called by the web entry point. */
+export function assertDemoBootAllowed(env: { readonly nodeEnv?: string; readonly allowDemoOverride?: string }): void {
+  const result = evaluateDemoBoot(env);
+  if (result.status === "BOOT_REFUSED") {
+    throw new Error(result.reason);
+  }
+}
+
 export class ServiceLumiApp {
   readonly core = new ServiceLumiCore();
   readonly sessions = new SessionRegistry();

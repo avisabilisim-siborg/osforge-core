@@ -220,6 +220,12 @@ export function transitionWorkOrder(order: WorkOrderRecord, request: TransitionR
     if (approval === undefined || approval.trim() === "") {
       return denied(order, request, "customer_approval_missing", "Entering APPROVED requires a recorded customer approval reference; approval can never be assumed (H6.1).");
     }
+    // Approval binds to the quote the customer actually saw (H6.3). The quote is
+    // frozen at QUOTE_PENDING_APPROVAL; supplying a different quote alongside the
+    // approval would let a caller record consent for one price and store another.
+    if (request.quote !== undefined) {
+      return denied(order, request, "approval_quote_immutable", "A quote cannot be changed while recording customer approval; the approval must apply to the quote the customer already reviewed.");
+    }
   }
   const quote = request.quote ?? order.quote;
   if (quote !== undefined && (!Number.isFinite(quote.amountMinor) || quote.amountMinor < 0 || quote.currency.trim() === "")) {
