@@ -1,0 +1,127 @@
+{
+  "$id": "osforge.control-plane.audit",
+  "title": "OSForge Control Plane audit manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "task_id",
+    "repository",
+    "pull_request",
+    "audited_head_sha",
+    "auditor_mode",
+    "scope_verified",
+    "history_integrity_verified",
+    "required_ci_verified",
+    "blocker_findings",
+    "major_findings",
+    "minor_findings",
+    "advisory_findings",
+    "database_effect_verified",
+    "runtime_effect_verified",
+    "feature_flag_verified",
+    "secret_scan_verified",
+    "paid_ai_policy_verified",
+    "merge_ready",
+    "human_merge_approval_required",
+    "evidence",
+    "audited_at"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "task_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "repository": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$"
+    },
+    "pull_request": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "audited_head_sha": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{40}$"
+    },
+    "auditor_mode": {
+      "type": "string",
+      "const": "audit"
+    },
+    "scope_verified": {
+      "type": "boolean"
+    },
+    "history_integrity_verified": {
+      "type": "boolean"
+    },
+    "required_ci_verified": {
+      "type": "boolean"
+    },
+    "blocker_findings": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "major_findings": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "minor_findings": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "advisory_findings": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "database_effect_verified": {
+      "type": "boolean"
+    },
+    "runtime_effect_verified": {
+      "type": "boolean"
+    },
+    "feature_flag_verified": {
+      "type": "boolean"
+    },
+    "secret_scan_verified": {
+      "type": "boolean"
+    },
+    "paid_ai_policy_verified": {
+      "type": "boolean"
+    },
+    "merge_ready": {
+      "type": "boolean"
+    },
+    "human_merge_approval_required": {
+      "type": "boolean",
+      "const": true
+    },
+    "evidence": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "audited_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

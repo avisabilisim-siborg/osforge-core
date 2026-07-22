@@ -1,0 +1,25 @@
+{
+  "policy_id": "osforge.control-plane.workflow",
+  "control_plane_version": "1.0.0",
+  "required_permissions": { "contents": "read" },
+  "optional_permissions": { "pull-requests": "read" },
+  "forbidden_permissions": [
+    "contents: write",
+    "pull-requests: write",
+    "issues: write",
+    "actions: write",
+    "deployments: write",
+    "id-token: write",
+    "packages: write",
+    "permissions: write-all"
+  ],
+  "forbidden_workflow_behaviour": [
+    "open pull request",
+    "create commit",
+    "create branch",
+    "merge",
+    "deploy",
+    "invoke model"
+  ],
+  "allowed_events": ["pull_request", "push", "workflow_dispatch"]
+}

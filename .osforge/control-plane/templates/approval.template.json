@@ -1,0 +1,15 @@
+{
+  "schema_version": "1.0.0",
+  "task_id": "EXAMPLE-TASK-001",
+  "approval_type": "merge",
+  "decision": "approved",
+  "approved_by": "human-operator",
+  "approved_at": "2026-01-01T00:00:00.000Z",
+  "target_repository": "avisabilisim-siborg/osforge-core",
+  "target_sha": "0000000000000000000000000000000000000000",
+  "scope": [
+    "merge only"
+  ],
+  "expires_at": "2026-01-02T00:00:00.000Z",
+  "notes": "Approval is bound to the exact target sha and does not authorise migration, deploy or release."
+}

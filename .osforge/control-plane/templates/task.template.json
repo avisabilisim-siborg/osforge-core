@@ -1,0 +1,74 @@
+{
+  "schema_version": "1.0.0",
+  "control_plane_version": "1.0.0",
+  "task_id": "EXAMPLE-TASK-001",
+  "project": "osforge-core",
+  "repository": "avisabilisim-siborg/osforge-core",
+  "phase_id": "CP-EXAMPLE",
+  "title": "Replace with the real task title",
+  "mode": "implement",
+  "risk_level": "HIGH",
+  "base_branch": "main",
+  "working_branch": "feat/example/replace-me",
+  "objective": "Replace with a single verifiable objective.",
+  "source_of_truth": [
+    "docs/000_OSFORGE_CONSTITUTION.md"
+  ],
+  "prerequisites": [
+    "previous phase merged and verified"
+  ],
+  "allowed_paths": [
+    "packages/example/**"
+  ],
+  "forbidden_paths": [
+    "**/migrations/**",
+    ".env",
+    ".env.*"
+  ],
+  "allowed_operations": [
+    "read",
+    "write_allowed_paths",
+    "run_tests",
+    "commit",
+    "push",
+    "open_pull_request"
+  ],
+  "forbidden_operations": [
+    "merge",
+    "database_migration",
+    "feature_flag_activation",
+    "secret_change",
+    "deploy",
+    "release",
+    "force_push",
+    "admin_override"
+  ],
+  "required_checks": [
+    "typecheck",
+    "tests",
+    "secret-scan",
+    "control-plane-validation"
+  ],
+  "required_evidence": [
+    "full head sha",
+    "ci run id",
+    "changed file list"
+  ],
+  "human_approvals": [
+    "merge"
+  ],
+  "database_effect": "none",
+  "runtime_effect": "none",
+  "feature_flag_effect": "none",
+  "secret_effect": "none",
+  "deploy_effect": "none",
+  "rollback_strategy": "git revert of the merge commit; no data migration performed",
+  "out_of_scope": [
+    "production rollout",
+    "secret provisioning"
+  ],
+  "max_remediation_loops": 0,
+  "paid_ai_allowed": false,
+  "created_by": "human-operator",
+  "created_at": "2026-01-01T00:00:00.000Z"
+}

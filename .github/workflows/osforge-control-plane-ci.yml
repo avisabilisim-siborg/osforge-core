@@ -1,0 +1,59 @@
+name: OSForge Control Plane CI
+
+# Deterministic, subscription-only verification of the control plane itself.
+# This workflow never invokes a model, never writes to the repository and never
+# performs a human-gated operation. Read-only by construction.
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Least privilege: read-only. No job requests any write scope.
+permissions:
+  contents: read
+
+concurrency:
+  group: control-plane-ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  NODE_VERSION: "24.15.0"
+
+jobs:
+  control-plane:
+    name: Control plane validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Control plane structure and manifest contracts
+        run: node .osforge/control-plane/scripts/validate-control-plane.mjs
+
+      - name: Template manifests validate against their schemas
+        run: |
+          node .osforge/control-plane/scripts/validate-manifest.mjs task .osforge/control-plane/templates/task.template.json
+          node .osforge/control-plane/scripts/validate-manifest.mjs audit .osforge/control-plane/templates/audit.template.json
+          node .osforge/control-plane/scripts/validate-manifest.mjs approval .osforge/control-plane/templates/approval.template.json
+          node .osforge/control-plane/scripts/validate-manifest.mjs state .osforge/control-plane/templates/state.template.json
+
+      - name: Human gate policy
+        run: node .osforge/control-plane/scripts/check-human-gates.mjs .osforge/control-plane/templates/task.template.json
+
+      - name: Subscription-only (no paid AI) scan
+        run: node .osforge/control-plane/scripts/check-no-paid-ai.mjs
+
+      - name: Workflow permission and behaviour scan
+        run: node .osforge/control-plane/scripts/check-workflow-permissions.mjs
+
+      - name: Prompt and agent-instruction consistency
+        run: node .osforge/control-plane/scripts/check-prompt-consistency.mjs
+
+      - name: Control plane unit tests
+        run: node --test tests/control-plane-policy.test.mjs

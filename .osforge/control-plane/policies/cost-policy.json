@@ -1,0 +1,31 @@
+{
+  "policy_id": "osforge.control-plane.cost",
+  "control_plane_version": "1.0.0",
+  "mode": "subscription-only",
+  "paid_ai_allowed": false,
+  "max_remediation_loops": 0,
+  "forbidden_env_names": [
+    "OPENAI_API_KEY",
+    "ANTHROPIC_API_KEY",
+    "ANTHROPIC_AUTH_TOKEN",
+    "OPENAI_BASE_URL",
+    "ANTHROPIC_BASE_URL"
+  ],
+  "forbidden_endpoints": [
+    "api.openai.com",
+    "api.anthropic.com"
+  ],
+  "forbidden_actions": [
+    "claude-code-action",
+    "openai-action",
+    "bedrock-invoke-model",
+    "vertex-predict"
+  ],
+  "forbidden_behaviour": [
+    "model invocation from CI",
+    "automatic AI remediation loop",
+    "usage credit auto-reload",
+    "third-party paid LLM gateway"
+  ],
+  "allowlist": []
+}

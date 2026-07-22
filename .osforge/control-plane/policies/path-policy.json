@@ -1,0 +1,56 @@
+{
+  "policy_id": "osforge.control-plane.path",
+  "control_plane_version": "1.0.0",
+  "description": "Canonical default path policy. Consumer repositories extend it in .osforge/project.json and never weaken the protected, production, secret or migration classes.",
+  "protected_paths": [
+    "docs/000_OSFORGE_CONSTITUTION.md",
+    "docs/002_PRINCIPLES.md",
+    "docs/security/**",
+    "docs/adr/**",
+    ".osforge/control-plane/policies/**",
+    ".osforge/control-plane/schemas/**",
+    ".github/workflows/**",
+    "CLAUDE.md",
+    "AGENTS.md"
+  ],
+  "production_paths": [
+    "deploy/**",
+    "infra/**",
+    "terraform/**",
+    "helm/**",
+    ".github/workflows/*deploy*",
+    ".github/workflows/*release*"
+  ],
+  "secret_paths": [
+    ".env",
+    ".env.*",
+    "**/secrets/**",
+    "**/*.pem",
+    "**/*.key",
+    "**/credentials*"
+  ],
+  "migration_paths": [
+    "**/prisma/migrations/**",
+    "**/migrations/**",
+    "**/*.sql"
+  ],
+  "generated_paths": [
+    "dist/**",
+    "build/**",
+    "coverage/**",
+    "**/node_modules/**"
+  ],
+  "user_owned_untracked_paths": [
+    "ddg.html",
+    "docs/design/**"
+  ],
+  "always_forbidden_paths": [
+    ".env",
+    ".env.*",
+    "**/node_modules/**",
+    "dist/**",
+    "coverage/**",
+    "**/*.pem",
+    "**/*.key"
+  ]
+}

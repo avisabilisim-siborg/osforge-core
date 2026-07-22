@@ -1,0 +1,42 @@
+{
+  "policy_id": "osforge.control-plane.security",
+  "control_plane_version": "1.0.0",
+  "constitution_reference": "docs/000_OSFORGE_CONSTITUTION.md",
+  "default_posture": "fail-closed",
+  "principles": [
+    "SECURITY FIRST",
+    "TRUST BEFORE INTELLIGENCE",
+    "HUMAN SOVEREIGNTY",
+    "ZERO TRUST",
+    "LEAST PRIVILEGE",
+    "FAIL CLOSED",
+    "DEFENSE IN DEPTH",
+    "TENANT ISOLATION",
+    "IMMUTABLE AUDIT",
+    "BLAST RADIUS LIMITATION",
+    "PROTECT THE CORE, EVOLVE AT THE EDGES",
+    "VERIFIED EVOLUTION OVER RAPID INNOVATION",
+    "HUMAN VALUE FIRST ARCHITECTURE",
+    "CONTROLLED EVOLUTION",
+    "NO SILENT PRODUCTION CHANGE"
+  ],
+  "agent_may_never_be": [
+    "constitution_owner",
+    "root_owner",
+    "production_owner",
+    "database_owner",
+    "secret_owner",
+    "final_merge_authority"
+  ],
+  "build_order": [
+    "osforge_security_fortress",
+    "osforge_core",
+    "lumi_intelligence",
+    "lumi_product_cities"
+  ],
+  "evidence_requirements": {
+    "full_sha_required": true,
+    "ci_run_id_required": true,
+    "audit_separate_from_implementation": true
+  }
+}

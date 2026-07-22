@@ -1,0 +1,84 @@
+name: OSForge control plane task
+description: Request a unit of work that will be driven through the OSForge control plane.
+title: "[TASK] "
+labels: ["osforge-task"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This issue becomes a task manifest under `.osforge/tasks/`.
+        Read `docs/control-plane/SUBSCRIPTION_ONLY_OPERATOR_GUIDE.md` first.
+        Merge, migration, feature-flag activation, secret change, deploy and release
+        always stay human decisions.
+
+  - type: input
+    id: task_id
+    attributes:
+      label: Task id
+      description: Upper-case identifier, for example CP1-B or K1-B2.
+      placeholder: CP1-B
+    validations:
+      required: true
+
+  - type: input
+    id: phase_id
+    attributes:
+      label: Canonical phase id
+      description: The phase from the canonical roadmap this task implements.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: risk_level
+    attributes:
+      label: Risk level
+      options:
+        - LOW
+        - MEDIUM
+        - HIGH
+        - CRITICAL
+    validations:
+      required: true
+
+  - type: textarea
+    id: objective
+    attributes:
+      label: Objective
+      description: One verifiable objective. Keep the scope small.
+    validations:
+      required: true
+
+  - type: textarea
+    id: allowed_paths
+    attributes:
+      label: Allowed paths
+      description: The narrowest set of paths this task may change.
+    validations:
+      required: true
+
+  - type: textarea
+    id: out_of_scope
+    attributes:
+      label: Explicitly out of scope
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: effects
+    attributes:
+      label: Declared effects
+      options:
+        - label: This task applies a database migration (requires a separate approval)
+        - label: This task activates a feature flag (requires a separate approval)
+        - label: This task changes a secret (requires a separate approval)
+        - label: This task deploys or releases (requires a separate approval)
+
+  - type: checkboxes
+    id: gates
+    attributes:
+      label: Acknowledgements
+      options:
+        - label: I understand merge requires my explicit approval
+          required: true
+        - label: I understand continuous integration performs validation only and never merges or deploys
+          required: true
