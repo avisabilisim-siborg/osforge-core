@@ -1,0 +1,105 @@
+{
+  "schema_version": "1.1.0",
+  "control_plane_version": "1.1.0",
+  "task_id": "CP1-A",
+  "project": "osforge-core",
+  "repository": "avisabilisim-siborg/osforge-core",
+  "phase_id": "CP1-A",
+  "title": "Subscription-only control plane v1 foundation",
+  "mode": "implement",
+  "risk_level": "HIGH",
+  "base_branch": "main",
+  "working_branch": "feat/control-plane/subscription-only-v1-foundation",
+  "objective": "Add the canonical subscription-only control plane (policies, schemas, templates, prompts, deterministic validators, adversarial tests and documentation) without changing product code, runtime behaviour or repository settings.",
+  "source_of_truth": [
+    "docs/000_OSFORGE_CONSTITUTION.md",
+    "docs/control-plane/SECURITY_MODEL.md",
+    "docs/control-plane/THREAT_MODEL.md"
+  ],
+  "prerequisites": [
+    "main is green on Core CI",
+    "no other control plane version exists in this repository"
+  ],
+  "allowed_paths": [
+    ".osforge/control-plane/**",
+    ".osforge/tasks/**",
+    "docs/control-plane/**",
+    ".github/workflows/osforge-control-plane-ci.yml",
+    ".github/ISSUE_TEMPLATE/**",
+    ".github/PULL_REQUEST_TEMPLATE/**",
+    "tests/control-plane-policy.test.mjs",
+    "tests/control-plane-adversarial.test.mjs",
+    "CLAUDE.md",
+    "AGENTS.md"
+  ],
+  "forbidden_paths": [
+    "packages/**",
+    "docs/security/**",
+    "docs/adr/**",
+    "docs/architecture/**",
+    ".github/workflows/core-ci.yml",
+    "package.json",
+    "package-lock.json",
+    "**/migrations/**"
+  ],
+  "allowed_operations": [
+    "read",
+    "write_allowed_paths",
+    "run_tests",
+    "commit",
+    "push",
+    "open_pull_request"
+  ],
+  "forbidden_operations": [
+    "merge",
+    "database_migration",
+    "feature_flag_activation",
+    "secret_change",
+    "deploy",
+    "release",
+    "force_push",
+    "admin_override",
+    "branch_protection_change",
+    "repository_visibility_change",
+    "ruleset_change"
+  ],
+  "required_checks": [
+    "control-plane-validation",
+    "path-policy",
+    "instruction-boundary",
+    "no-paid-ai",
+    "workflow-permissions",
+    "prompt-consistency",
+    "typecheck",
+    "tests",
+    "secret-scan"
+  ],
+  "required_evidence": [
+    "full head sha",
+    "ci run id",
+    "changed file list",
+    "local command exit codes"
+  ],
+  "human_approvals": [
+    "merge",
+    "protected_path_change"
+  ],
+  "database_effect": "none",
+  "runtime_effect": "none",
+  "feature_flag_effect": "none",
+  "secret_effect": "none",
+  "deploy_effect": "none",
+  "rollback_strategy": "git revert of the merge commit; the control plane is additive governance data and validators, so no runtime or data rollback is involved",
+  "out_of_scope": [
+    "repository ruleset and branch protection changes",
+    "repository visibility changes",
+    "Glowia / SalonLumi adoption (CP1-B)",
+    "K1-B2 implementation (CP1-C)",
+    "product runtime wiring, migrations, deploys and releases",
+    "pinning actions in .github/workflows/core-ci.yml (tracked as repository prerequisite P7)"
+  ],
+  "max_remediation_loops": 0,
+  "paid_ai_allowed": false,
+  "created_by": "human-operator",
+  "created_at": "2026-07-22T14:00:00.000Z"
+}

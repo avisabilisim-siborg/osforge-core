@@ -36,11 +36,13 @@
     "human_approvals": {
       "type": "array",
       "minItems": 1,
+      "uniqueItems": true,
       "items": {
         "type": "string",
         "enum": [
-          "implementation", "merge", "database_migration", "feature_flag_activation",
-          "secret_change", "deploy", "release", "production_change", "rollback"
+          "implementation", "merge", "protected_path_change", "database_migration",
+          "feature_flag_activation", "secret_change", "deploy", "release",
+          "production_change", "rollback"
         ]
       }
     },

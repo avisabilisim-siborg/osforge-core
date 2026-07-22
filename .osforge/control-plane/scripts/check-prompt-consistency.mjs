@@ -1,20 +1,34 @@
 #!/usr/bin/env node
-// OSForge Control Plane — prompt and agent-instruction consistency guard.
-// CLAUDE.md and AGENTS.md may differ in tooling detail but never in security posture.
+// OSForge Control Plane — prompt protocol consistency guard.
+//
+// Substring spot-checks cannot prove that two instruction files carry the same
+// security posture (audit finding M8). The invariant equality check now lives in
+// check-instruction-boundary.mjs and is driven by a machine-readable invariant
+// list. This guard covers the five mode protocols: each one must exist, name its
+// own mode, state its fail-closed behaviour, and declare the mode boundaries that
+// separate reading from writing and writing from merging.
 import { readFileSync, existsSync } from "node:fs";
-import { report, CONTROL_PLANE_DIR } from "./cp-lib.mjs";
+import { readJson, runCli, CONTROL_PLANE_DIR } from "./cp-lib.mjs";
 
 export const REQUIRED_MODES = ["plan", "implement", "audit", "merge", "cleanup"];
 
-export const SHARED_SECURITY_MARKERS = [
-  "000_OSFORGE_CONSTITUTION.md",
-  ".osforge/control-plane",
-  "fail-closed",
-  "human approval",
-  "merge"
-];
+/** Phrases each protocol must contain, lower-cased, per mode. */
+export const MODE_REQUIREMENTS = {
+  plan: ["read-only", "fail-closed", "never changes the repository"],
+  implement: ["fail-closed", "allowed_paths", "merging is a separate human decision"],
+  audit: ["read-only", "fail-closed", "never merges", "merge_ready"],
+  merge: [
+    "fail-closed",
+    "human merge approval",
+    "exact head sha",
+    "admin override",
+    "auto-merge",
+    "repository_prerequisites"
+  ],
+  cleanup: ["fail-closed", "never use force", "merge commit"]
+};
 
-export function promptFindings(read, exists) {
+export function promptFindings(read, exists, policy) {
   const findings = [];
   for (const mode of REQUIRED_MODES) {
     const file = `${CONTROL_PLANE_DIR}/prompts/${mode}.md`;
@@ -23,22 +37,26 @@ export function promptFindings(read, exists) {
       continue;
     }
     const text = read(file).toLowerCase();
-    if (!text.includes("fail-closed")) {
-      findings.push(`${file}: prompt must state fail-closed behaviour`);
-    }
-    if (!text.includes(mode)) {
+    if (!text.includes(`— ${mode} mode`) && !text.includes(`${mode} mode`)) {
       findings.push(`${file}: prompt must name its own mode`);
     }
+    for (const phrase of MODE_REQUIREMENTS[mode] ?? []) {
+      if (!text.includes(phrase.toLowerCase())) {
+        findings.push(`${file}: prompt must state "${phrase}"`);
+      }
+    }
   }
-  for (const file of ["CLAUDE.md", "AGENTS.md"]) {
+  // The canonical instruction files must reference the protocols, so an operator
+  // cannot be pointed at a mode that does not exist.
+  for (const file of policy.canonical_instruction_files ?? []) {
     if (!exists(file)) {
-      findings.push(`missing agent instruction file: ${file}`);
+      findings.push(`missing canonical instruction file: ${file}`);
       continue;
     }
-    const text = read(file).toLowerCase();
-    for (const marker of SHARED_SECURITY_MARKERS) {
-      if (!text.includes(marker.toLowerCase())) {
-        findings.push(`${file}: missing shared security marker (${marker})`);
+    const text = read(file);
+    for (const mode of REQUIRED_MODES) {
+      if (!text.includes(`prompts/${mode}.md`)) {
+        findings.push(`${file}: does not reference prompts/${mode}.md`);
       }
     }
   }
@@ -46,5 +64,8 @@ export function promptFindings(read, exists) {
 }
 
 if (process.argv[1] && process.argv[1].endsWith("check-prompt-consistency.mjs")) {
-  report("PROMPT_CONSISTENCY", promptFindings((f) => readFileSync(f, "utf8"), (f) => existsSync(f)));
+  runCli("PROMPT_CONSISTENCY", () => {
+    const policy = readJson(`${CONTROL_PLANE_DIR}/policies/instruction-policy.json`);
+    return promptFindings((f) => readFileSync(f, "utf8"), (f) => existsSync(f), policy);
+  });
 }

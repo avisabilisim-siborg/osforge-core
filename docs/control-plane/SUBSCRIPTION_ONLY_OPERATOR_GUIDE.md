@@ -48,6 +48,15 @@ On every command the agent must:
 
 Audit and implementation are never performed as the same task.
 
+## What CI can and cannot enforce
+
+Deterministic CI enforces the checks defined in this repository and fails closed.
+It cannot enforce a repository setting. Until the items in
+`REPOSITORY_PREREQUISITES.md` are applied by a human, GitHub will not actually
+refuse a merge, and an audit must record `ruleset_prerequisites_met: false`.
+An approval record is a reviewable declaration of your decision, not a
+cryptographic proof that you — and not an agent — wrote it.
+
 ## Human gates you always keep
 
 Merge, database migration, feature-flag activation, secret change, deploy, release,

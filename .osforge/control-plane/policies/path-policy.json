@@ -1,7 +1,18 @@
 {
   "policy_id": "osforge.control-plane.path",
-  "control_plane_version": "1.0.0",
-  "description": "Canonical default path policy. Consumer repositories extend it in .osforge/project.json and never weaken the protected, production, secret or migration classes.",
+  "control_plane_version": "1.1.0",
+  "description": "Canonical default path policy. Every class below is enforced by check-path-policy.mjs after the changed path has been canonicalised, and every class is matched case-insensitively. Consumer repositories extend these classes and never weaken them.",
+  "class_precedence": [
+    "always_forbidden_paths",
+    "user_owned_untracked_paths",
+    "secret_paths",
+    "generated_paths",
+    "task.forbidden_paths",
+    "task.allowed_paths",
+    "protected_paths",
+    "migration_paths",
+    "production_paths"
+  ],
   "protected_paths": [
     "docs/000_OSFORGE_CONSTITUTION.md",
     "docs/002_PRINCIPLES.md",
@@ -9,36 +20,53 @@
     "docs/adr/**",
     ".osforge/control-plane/policies/**",
     ".osforge/control-plane/schemas/**",
+    ".osforge/control-plane/scripts/**",
     ".github/workflows/**",
     "CLAUDE.md",
-    "AGENTS.md"
+    "AGENTS.md",
+    "**/CLAUDE*.md",
+    "**/AGENTS*.md"
   ],
+  "protected_paths_note": "A protected path may only change when the task manifest declares a 'protected_path_change' human approval. It is never silently editable.",
   "production_paths": [
     "deploy/**",
     "infra/**",
     "terraform/**",
     "helm/**",
+    "k8s/**",
     ".github/workflows/*deploy*",
     ".github/workflows/*release*"
   ],
   "secret_paths": [
     ".env",
     ".env.*",
+    "**/.env",
+    "**/.env.*",
     "**/secrets/**",
     "**/*.pem",
     "**/*.key",
-    "**/credentials*"
+    "**/*.p12",
+    "**/*.pfx",
+    "**/id_rsa*",
+    "**/id_ed25519*",
+    "**/credentials*",
+    "**/*secret*.json",
+    "**/*secret*.txt",
+    "**/.npmrc",
+    "**/.netrc"
   ],
   "migration_paths": [
     "**/prisma/migrations/**",
     "**/migrations/**",
+    "**/migration/**",
     "**/*.sql"
   ],
   "generated_paths": [
     "dist/**",
     "build/**",
     "coverage/**",
-    "**/node_modules/**"
+    "**/node_modules/**",
+    "**/*.tsbuildinfo"
   ],
   "user_owned_untracked_paths": [
     "ddg.html",
@@ -47,10 +75,16 @@
   "always_forbidden_paths": [
     ".env",
     ".env.*",
+    "**/.env",
+    "**/.env.*",
     "**/node_modules/**",
     "dist/**",
+    "build/**",
     "coverage/**",
     "**/*.pem",
-    "**/*.key"
+    "**/*.key",
+    "**/id_rsa*",
+    "**/id_ed25519*",
+    ".git/**"
   ]
 }

@@ -1,7 +1,12 @@
 {
   "policy_id": "osforge.control-plane.risk",
-  "control_plane_version": "1.0.0",
-  "levels": ["LOW", "MEDIUM", "HIGH", "CRITICAL"],
+  "control_plane_version": "1.1.0",
+  "levels": [
+    "LOW",
+    "MEDIUM",
+    "HIGH",
+    "CRITICAL"
+  ],
   "critical_domains": [
     "authentication",
     "authorization",

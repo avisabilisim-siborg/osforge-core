@@ -2,62 +2,161 @@
 // OSForge Control Plane — subscription-only enforcement. Fails when any active
 // configuration would enable a paid model API or an automated model invocation.
 //
-// Context awareness: a small, explicit set of DECLARATION files is allowed to name
-// the forbidden vocabulary, because those files define or document the prohibition
-// itself. This is a per-file declaration surface, not a value allowlist, and it never
-// covers workflows, package manifests or runtime code.
-import { execSync } from "node:child_process";
-import { readFileSync } from "node:fs";
-import { readJson, report, CONTROL_PLANE_DIR } from "./cp-lib.mjs";
+// Scan surface: every tracked file that is not a known binary type. There is no
+// extension allowlist, because an allowlist turns "a new kind of config file"
+// into a silent bypass (audit finding M3). Shell scripts, Dockerfiles, Python
+// helpers and package manifests are all in scope.
+//
+// Declaration surface: a small, policy-declared set of files may NAME the
+// forbidden vocabulary, because those files define or document the prohibition.
+// The exemption never covers a workflow, a package manifest or a task manifest.
+// The rule that rejects an enabled paid-AI flag ignores the declaration surface
+// entirely; only the negative test fixtures under `tests/` may carry that literal.
+//
+// This is a source-level control, not a network egress control. See
+// `known_limitations` in cost-policy.json — the limitation is declared, not hidden.
+import { execFileSync } from "node:child_process";
+import { readFileSync, statSync } from "node:fs";
+import { readJson, matchesAny, runCli, CONTROL_PLANE_DIR } from "./cp-lib.mjs";
 
-export const DECLARATION_FILES = new Set([
-  ".osforge/control-plane/policies/cost-policy.json",
-  ".osforge/control-plane/scripts/check-no-paid-ai.mjs",
-  ".osforge/control-plane/prompts/implement.md",
-  ".osforge/control-plane/README.md",
-  "docs/control-plane/SUBSCRIPTION_ONLY_OPERATOR_GUIDE.md",
-  "docs/control-plane/SECURITY_MODEL.md",
-  "docs/control-plane/THREAT_MODEL.md",
-  "docs/control-plane/ADOPTION_GUIDE.md",
-  "tests/control-plane-policy.test.mjs",
-  "AGENTS.md",
-  "CLAUDE.md"
-]);
+const BASE64_LITERAL = /[A-Za-z0-9+/]{16,}={0,2}/gu;
 
-const SCANNABLE = /\.(ts|mjs|cjs|js|json|yml|yaml|md|txt)$/u;
+/** Removes quote-and-concatenate obfuscation: 'OPEN' + 'AI_API_KEY'. */
+export function deobfuscate(content) {
+  let out = content;
+  for (let i = 0; i < 3; i += 1) {
+    const next = out.replace(/(["'`])\s*\+\s*(["'`])/gu, "");
+    if (next === out) break;
+    out = next;
+  }
+  return out;
+}
 
+/** Decodes base64-looking literals so a hidden endpoint cannot pass as data. */
+export function decodedProbes(content, minLength) {
+  const probes = [];
+  for (const match of content.match(BASE64_LITERAL) ?? []) {
+    if (match.length < minLength) continue;
+    try {
+      const decoded = Buffer.from(match, "base64").toString("utf8");
+      if (/^[\x20-\x7e]+$/u.test(decoded) && decoded.length >= 6) {
+        probes.push(decoded);
+      }
+    } catch {
+      // A literal that is not valid base64 is simply not a probe.
+    }
+  }
+  return probes;
+}
+
+function ruleApplies(rule, file, policy, isDeclaration) {
+  if (rule.scope === "control-plane" && !matchesAny(file, policy.control_plane_scope)) {
+    return false;
+  }
+  if (rule.always_applies === true) {
+    // Only an explicit, narrow negative-fixture allowance can silence this rule,
+    // and that allowance is per rule, not per declaration file.
+    return !matchesAny(file, rule.negative_fixture_paths);
+  }
+  return !isDeclaration;
+}
+
+export function isDeclarationFile(file, policy) {
+  if (!(policy.declaration_files ?? []).includes(file)) {
+    return false;
+  }
+  const never = policy.declaration_never_applies_to ?? {};
+  return !matchesAny(file, never.path_patterns);
+}
+
+/**
+ * @param files    tracked, non-binary file list
+ * @param readFile (file) => string
+ * @param policy   cost-policy.json
+ */
 export function paidAiFindings(files, readFile, policy) {
-  const needles = [
-    ...(policy.forbidden_env_names ?? []),
-    ...(policy.forbidden_endpoints ?? []),
-    ...(policy.forbidden_actions ?? [])
-  ];
+  const rules = (policy.rules ?? []).map((r) => ({ ...r, re: new RegExp(r.pattern, r.flags ?? "u") }));
+  const base64 = policy.base64_probe ?? { enabled: false, min_length: 16 };
   const findings = [];
   for (const file of files) {
-    if (DECLARATION_FILES.has(file) || !SCANNABLE.test(file)) {
-      continue;
-    }
-    const content = readFile(file);
-    for (const needle of needles) {
-      if (content.includes(needle)) {
-        findings.push(`${file}: forbidden paid-AI reference (${needle})`);
+    const declaration = isDeclarationFile(file, policy);
+    const raw = readFile(file);
+    const content = deobfuscate(raw);
+    const probes = base64.enabled ? decodedProbes(raw, base64.min_length ?? 16) : [];
+    for (const rule of rules) {
+      if (!ruleApplies(rule, file, policy, declaration)) {
+        continue;
       }
-    }
-    // Matches both YAML (paid_ai_allowed: true) and JSON ("paid_ai_allowed": true).
-    if (/paid_ai_allowed"?\s*[:=]\s*true/u.test(content)) {
-      findings.push(`${file}: paid_ai_allowed must never be true`);
+      if (rule.re.test(content)) {
+        findings.push(`${file}: ${rule.why} [${rule.id}]`);
+        continue;
+      }
+      if (rule.id.startsWith("endpoint.") && probes.some((p) => rule.re.test(p))) {
+        findings.push(`${file}: ${rule.why} hidden in an encoded literal [${rule.id}]`);
+      }
     }
   }
   return findings;
 }
 
-if (process.argv[1] && process.argv[1].endsWith("check-no-paid-ai.mjs")) {
-  const policy = readJson(`${CONTROL_PLANE_DIR}/policies/cost-policy.json`);
-  const errors = [];
-  if (policy.paid_ai_allowed !== false || policy.max_remediation_loops !== 0) {
-    errors.push("cost policy must keep paid_ai_allowed=false and max_remediation_loops=0");
+export function trackedTextFiles(policy, cwd = process.cwd()) {
+  const surface = policy.scan_surface ?? {};
+  const binary = new Set((surface.binary_extensions ?? []).map((e) => e.toLowerCase()));
+  const maxBytes = surface.max_file_bytes ?? 4194304;
+  const out = execFileSync("git", ["ls-files", "-z"], {
+    cwd,
+    encoding: "buffer",
+    maxBuffer: 64 * 1024 * 1024
+  });
+  const files = [];
+  const skipped = [];
+  for (const file of out.toString("utf8").split("\u0000")) {
+    if (file === "") continue;
+    const ext = (file.split(".").pop() ?? "").toLowerCase();
+    if (file.includes(".") && binary.has(ext)) {
+      skipped.push(`${file} (binary type)`);
+      continue;
+    }
+    let size = 0;
+    try {
+      size = statSync(file).size;
+    } catch {
+      // A tracked path that cannot be stat'ed (submodule, broken link) is not
+      // silently skipped: it is reported so a human can classify it.
+      skipped.push(`${file} (not a readable regular file)`);
+      continue;
+    }
+    if (size > maxBytes) {
+      skipped.push(`${file} (larger than ${maxBytes} bytes)`);
+      continue;
+    }
+    files.push(file);
   }
-  const files = execSync("git ls-files", { encoding: "utf8" }).split("\n").map((s) => s.trim()).filter(Boolean);
-  errors.push(...paidAiFindings(files, (f) => readFileSync(f, "utf8"), policy));
-  report("NO_PAID_AI", errors);
+  return { files, skipped };
+}
+
+if (process.argv[1] && process.argv[1].endsWith("check-no-paid-ai.mjs")) {
+  runCli("NO_PAID_AI", () => {
+    const policy = readJson(`${CONTROL_PLANE_DIR}/policies/cost-policy.json`);
+    const errors = [];
+    if (policy.paid_ai_allowed !== false || policy.max_remediation_loops !== 0) {
+      errors.push("cost policy must keep paid_ai_allowed=false and max_remediation_loops=0");
+    }
+    if ((policy.allowlist ?? []).length > 0) {
+      errors.push("cost policy allowlist must stay empty in control plane v1");
+    }
+    if ((policy.rules ?? []).length === 0) {
+      errors.push("cost policy declares no rule: refusing to report success");
+    }
+    const { files, skipped } = trackedTextFiles(policy);
+    if (files.length === 0) {
+      throw new Error("no scannable file found: refusing to report success without evidence");
+    }
+    console.log(`NO_PAID_AI_SCOPE ${files.length} file(s) scanned, ${skipped.length} skipped`);
+    for (const s of skipped) {
+      console.log(`NO_PAID_AI_SKIPPED ${s}`);
+    }
+    errors.push(...paidAiFindings(files, (f) => readFileSync(f, "utf8"), policy));
+    return errors;
+  });
 }

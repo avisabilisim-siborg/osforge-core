@@ -33,6 +33,8 @@
 - [ ] Workflows remain read-only and never merge, push or deploy
 - [ ] Audit will be performed as a separate read-only task
 - [ ] Merge requires explicit human approval bound to the exact head SHA
+- [ ] Repository prerequisites in `docs/control-plane/REPOSITORY_PREREQUISITES.md`
+      are either satisfied, or explicitly recorded as unmet in the audit manifest
 
 ## Evidence
 

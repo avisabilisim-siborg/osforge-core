@@ -1,13 +1,18 @@
 {
-  "schema_version": "1.0.0",
+  "schema_version": "1.1.0",
   "task_id": "EXAMPLE-TASK-001",
   "repository": "avisabilisim-siborg/osforge-core",
   "pull_request": 1,
   "audited_head_sha": "0000000000000000000000000000000000000000",
+  "ci_head_sha": "0000000000000000000000000000000000000000",
+  "required_ci_runs": [],
   "auditor_mode": "audit",
+  "implementer_identity": "replace with the implementing session or operator",
+  "auditor_identity": "replace with the independent auditing session or operator",
   "scope_verified": false,
   "history_integrity_verified": false,
   "required_ci_verified": false,
+  "ruleset_prerequisites_met": false,
   "blocker_findings": [],
   "major_findings": [],
   "minor_findings": [],
@@ -22,5 +27,6 @@
   "evidence": [
     "replace with full sha, ci run id and command output"
   ],
-  "audited_at": "2026-01-01T00:00:00.000Z"
+  "audited_at": "2026-01-01T00:00:00.000Z",
+  "audit_valid_until": "2026-01-02T00:00:00.000Z"
 }

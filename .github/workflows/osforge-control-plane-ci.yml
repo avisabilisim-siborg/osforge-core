@@ -28,8 +28,13 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      # Actions are pinned to a full commit sha; the tag in the trailing comment
+      # is human-readable metadata only.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
           node-version: ${{ env.NODE_VERSION }}
 
@@ -43,17 +48,36 @@ jobs:
           node .osforge/control-plane/scripts/validate-manifest.mjs approval .osforge/control-plane/templates/approval.template.json
           node .osforge/control-plane/scripts/validate-manifest.mjs state .osforge/control-plane/templates/state.template.json
 
+      - name: Task manifests validate against their schema
+        run: |
+          for manifest in .osforge/tasks/*.task.json; do
+            node .osforge/control-plane/scripts/validate-manifest.mjs task "$manifest"
+          done
+
       - name: Human gate policy
-        run: node .osforge/control-plane/scripts/check-human-gates.mjs .osforge/control-plane/templates/task.template.json
+        run: node .osforge/control-plane/scripts/check-human-gates.mjs --task .osforge/tasks/CP1-A.task.json
+
+      - name: Path policy against the real pull request diff
+        if: github.event_name == 'pull_request'
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          node .osforge/control-plane/scripts/check-path-policy.mjs --task .osforge/tasks/CP1-A.task.json --base "$PR_BASE_SHA" --head HEAD
 
       - name: Subscription-only (no paid AI) scan
         run: node .osforge/control-plane/scripts/check-no-paid-ai.mjs
 
-      - name: Workflow permission and behaviour scan
+      - name: Workflow permission, event and behaviour scan
         run: node .osforge/control-plane/scripts/check-workflow-permissions.mjs
 
-      - name: Prompt and agent-instruction consistency
+      - name: Instruction boundary and invariant equality
+        run: node .osforge/control-plane/scripts/check-instruction-boundary.mjs
+
+      - name: Prompt protocol consistency
         run: node .osforge/control-plane/scripts/check-prompt-consistency.mjs
 
       - name: Control plane unit tests
         run: node --test tests/control-plane-policy.test.mjs
+
+      - name: Control plane adversarial tests
+        run: node --test tests/control-plane-adversarial.test.mjs

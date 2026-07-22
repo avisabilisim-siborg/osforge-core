@@ -1,56 +1,232 @@
 #!/usr/bin/env node
-// OSForge Control Plane — workflow permission and behaviour guard.
-// Every workflow must declare least-privilege permissions and must never write,
-// merge, deploy or invoke a model.
-import { execSync } from "node:child_process";
+// OSForge Control Plane — workflow permission, event and behaviour guard.
+//
+// The previous line/regex scanner could be defeated by flow-style YAML, by a
+// comment, or simply by writing the same action through a different command.
+// This version parses the document with the deterministic YAML subset parser and
+// evaluates the resulting tree. Anything the parser cannot represent is a
+// finding, never a pass.
+import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { readJson, report, CONTROL_PLANE_DIR } from "./cp-lib.mjs";
+import {
+  readJson,
+  parseYamlSubset,
+  stringLeaves,
+  YamlUnsupportedError,
+  runCli,
+  CONTROL_PLANE_DIR
+} from "./cp-lib.mjs";
 
-/** Returns the set of "key: value" permission pairs declared in a workflow. */
-export function declaredPermissions(content) {
-  const pairs = new Set();
-  for (const raw of content.split("\n")) {
-    const line = raw.trim();
-    const match = /^([a-z-]+)\s*:\s*(read|write|none|write-all|read-all)$/u.exec(line);
-    if (match) {
-      pairs.add(`${match[1]}: ${match[2]}`);
+const SHA_PINNED = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._\/-]+@[0-9a-f]{40}$/u;
+const LOCAL_ACTION = /^(\.\/|docker:\/\/)/u;
+
+/** Normalises the `on:` block into a flat list of event names. */
+export function declaredEvents(doc) {
+  const on = doc?.on;
+  if (on === undefined || on === null) {
+    return [];
+  }
+  if (typeof on === "string") {
+    return [on];
+  }
+  if (Array.isArray(on)) {
+    return on.map((e) => String(e));
+  }
+  if (typeof on === "object") {
+    return Object.keys(on);
+  }
+  return [];
+}
+
+/** Collects every declared permission block as `{where, key, value}` triples. */
+export function declaredPermissions(doc) {
+  const out = [];
+  const collect = (node, where) => {
+    if (node === undefined) {
+      return;
+    }
+    if (typeof node === "string") {
+      out.push({ where, key: "*", value: node });
+      return;
+    }
+    if (node && typeof node === "object" && !Array.isArray(node)) {
+      for (const [key, value] of Object.entries(node)) {
+        out.push({ where, key, value: String(value) });
+      }
+      return;
+    }
+    out.push({ where, key: "*", value: `unparsable:${JSON.stringify(node)}` });
+  };
+  collect(doc?.permissions, "workflow");
+  for (const [jobId, job] of Object.entries(doc?.jobs ?? {})) {
+    if (job && typeof job === "object" && Object.prototype.hasOwnProperty.call(job, "permissions")) {
+      collect(job.permissions, `job:${jobId}`);
     }
   }
-  return pairs;
+  return out;
+}
+
+/** Every `run:` script and `uses:` reference in the document. */
+export function declaredSteps(doc) {
+  const steps = [];
+  for (const [jobId, job] of Object.entries(doc?.jobs ?? {})) {
+    if (!job || typeof job !== "object") {
+      continue;
+    }
+    if (typeof job.uses === "string") {
+      steps.push({ where: `job:${jobId}`, uses: job.uses });
+    }
+    for (const step of job.steps ?? []) {
+      if (!step || typeof step !== "object") {
+        continue;
+      }
+      steps.push({
+        where: `job:${jobId}`,
+        uses: typeof step.uses === "string" ? step.uses : undefined,
+        run: typeof step.run === "string" ? step.run : undefined
+      });
+    }
+  }
+  return steps;
 }
 
 export function workflowFindings(files, readFile, policy) {
   const findings = [];
+  const allowedEvents = new Set(policy.allowed_events ?? []);
+  const forbiddenEvents = new Set(policy.forbidden_events ?? []);
+  const allowedPermissionValues = new Set(policy.allowed_permission_values ?? ["read", "none"]);
+  const allowedPermissionKeys = new Set([
+    ...Object.keys(policy.required_permissions ?? {}),
+    ...Object.keys(policy.optional_permissions ?? {})
+  ]);
+  const commandRules = (policy.forbidden_run_patterns ?? []).map((r) => ({
+    why: r.why,
+    re: new RegExp(r.pattern, r.flags ?? "iu")
+  }));
+  const actionRules = (policy.forbidden_action_patterns ?? []).map((r) => ({
+    why: r.why,
+    re: new RegExp(r.pattern, r.flags ?? "iu")
+  }));
+  const pinning = policy.action_pinning ?? { require_full_commit_sha: true, exceptions: [] };
+  const pinningExceptions = new Map((pinning.exceptions ?? []).map((e) => [e.file, e.reason]));
+  const reportedExceptions = new Set();
+
   for (const file of files) {
-    const content = readFile(file);
-    if (!/^permissions:/mu.test(content)) {
-      findings.push(`${file}: missing top-level permissions block`);
+    let doc;
+    try {
+      doc = parseYamlSubset(readFile(file));
+    } catch (err) {
+      const why = err instanceof YamlUnsupportedError ? err.message : String(err && err.message);
+      findings.push(`${file}: workflow could not be parsed deterministically (${why})`);
+      continue;
     }
-    const declared = declaredPermissions(content);
-    for (const forbidden of policy.forbidden_permissions ?? []) {
-      const normalised = forbidden.replace(/\s+/gu, " ").trim();
-      if (declared.has(normalised) || content.includes(`permissions: write-all`)) {
-        findings.push(`${file}: forbidden permission (${normalised})`);
+    if (!doc || typeof doc !== "object" || Array.isArray(doc)) {
+      findings.push(`${file}: workflow root must be a mapping`);
+      continue;
+    }
+
+    // 1. Events.
+    const events = declaredEvents(doc);
+    if (events.length === 0) {
+      findings.push(`${file}: no trigger event could be determined`);
+    }
+    for (const event of events) {
+      if (forbiddenEvents.has(event)) {
+        findings.push(`${file}: forbidden trigger event (${event})`);
+      } else if (!allowedEvents.has(event)) {
+        findings.push(`${file}: trigger event is not in allowed_events (${event})`);
       }
     }
-    if (/\bgh\s+pr\s+merge\b/u.test(content) || /\bmerge_method\b/u.test(content)) {
-      findings.push(`${file}: workflow must never merge`);
+
+    // 2. Permissions, both block-style and flow-style.
+    if (doc.permissions === undefined || doc.permissions === null) {
+      findings.push(`${file}: missing top-level permissions block`);
     }
-    if (/\bgh\s+pr\s+create\b/u.test(content) || /\bgit\s+push\b/u.test(content) || /\bgit\s+commit\b/u.test(content)) {
-      findings.push(`${file}: workflow must never create commits, branches or pull requests`);
+    for (const { where, key, value } of declaredPermissions(doc)) {
+      if (key === "*") {
+        findings.push(`${file} (${where}): blanket permissions value is forbidden (${value})`);
+        continue;
+      }
+      if (!allowedPermissionValues.has(value)) {
+        findings.push(`${file} (${where}): forbidden permission (${key}: ${value})`);
+        continue;
+      }
+      if (!allowedPermissionKeys.has(key)) {
+        findings.push(`${file} (${where}): permission scope is not allowed (${key})`);
+      }
     }
-    if (/auto[-_]?merge/iu.test(content)) {
-      findings.push(`${file}: auto-merge configuration is forbidden`);
+    for (const key of Object.keys(policy.required_permissions ?? {})) {
+      const wanted = policy.required_permissions[key];
+      const top = doc.permissions;
+      if (!top || typeof top !== "object" || String(top[key]) !== String(wanted)) {
+        findings.push(`${file}: top-level permissions must declare ${key}: ${wanted}`);
+      }
+    }
+
+    // 3. Steps: pinned actions, forbidden actions, forbidden commands.
+    for (const step of declaredSteps(doc)) {
+      if (step.uses !== undefined) {
+        if (
+          pinning.require_full_commit_sha !== false &&
+          !LOCAL_ACTION.test(step.uses) &&
+          !SHA_PINNED.test(step.uses)
+        ) {
+          if (pinningExceptions.has(file)) {
+            // Never silent: a recorded exception is still reported as an open risk.
+            const key = `${file} (${step.uses})`;
+            if (!reportedExceptions.has(key)) {
+              reportedExceptions.add(key);
+              console.log(`WORKFLOW_PINNING_EXCEPTION ${key} — ${pinningExceptions.get(file)}`);
+            }
+          } else {
+            findings.push(`${file} (${step.where}): action must be pinned to a full commit sha (${step.uses})`);
+          }
+        }
+        for (const rule of actionRules) {
+          if (rule.re.test(step.uses)) {
+            findings.push(`${file} (${step.where}): forbidden action (${step.uses}) — ${rule.why}`);
+          }
+        }
+      }
+      if (step.run !== undefined) {
+        for (const rule of commandRules) {
+          if (rule.re.test(step.run)) {
+            findings.push(`${file} (${step.where}): forbidden command — ${rule.why}`);
+          }
+        }
+      }
+    }
+
+    // 4. No repository or environment secret is consumed anywhere.
+    for (const leaf of stringLeaves(doc)) {
+      if (/\$\{\{\s*secrets\./u.test(leaf.value)) {
+        findings.push(`${file}: workflow must not consume a repository or environment secret (${leaf.path})`);
+      }
     }
   }
   return findings;
 }
 
-if (process.argv[1] && process.argv[1].endsWith("check-workflow-permissions.mjs")) {
-  const policy = readJson(`${CONTROL_PLANE_DIR}/policies/workflow-policy.json`);
-  const files = execSync("git ls-files .github/workflows", { encoding: "utf8" })
-    .split("\n")
-    .map((s) => s.trim())
+export function trackedWorkflows(cwd = process.cwd()) {
+  const out = execFileSync("git", ["ls-files", "-z", ".github/workflows"], {
+    cwd,
+    encoding: "buffer",
+    maxBuffer: 16 * 1024 * 1024
+  });
+  return out
+    .toString("utf8")
+    .split("\u0000")
     .filter((f) => /\.ya?ml$/u.test(f));
-  report("WORKFLOW_PERMISSIONS", workflowFindings(files, (f) => readFileSync(f, "utf8"), policy));
+}
+
+if (process.argv[1] && process.argv[1].endsWith("check-workflow-permissions.mjs")) {
+  runCli("WORKFLOW_PERMISSIONS", () => {
+    const policy = readJson(`${CONTROL_PLANE_DIR}/policies/workflow-policy.json`);
+    const files = trackedWorkflows();
+    if (files.length === 0) {
+      throw new Error("no workflow file found: refusing to report success without evidence");
+    }
+    console.log(`WORKFLOW_SCOPE ${files.length} workflow file(s)`);
+    return workflowFindings(files, (f) => readFileSync(f, "utf8"), policy);
+  });
 }

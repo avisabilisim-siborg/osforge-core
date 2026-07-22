@@ -1,6 +1,7 @@
 {
   "$id": "osforge.control-plane.approval",
   "title": "OSForge Control Plane human approval record",
+  "description": "An approval record is a reviewable declaration of a human decision. It is NOT a cryptographic proof of human identity; the repository review and ruleset gate remains the authoritative human control. See docs/control-plane/SECURITY_MODEL.md.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -9,9 +10,11 @@
     "approval_type",
     "decision",
     "approved_by",
+    "approver_kind",
     "approved_at",
     "target_repository",
     "target_sha",
+    "pull_request",
     "scope",
     "expires_at",
     "notes"
@@ -30,6 +33,7 @@
       "enum": [
         "implementation",
         "merge",
+        "protected_path_change",
         "database_migration",
         "feature_flag_activation",
         "secret_change",
@@ -43,12 +47,17 @@
       "type": "string",
       "enum": [
         "approved",
-        "rejected"
+        "rejected",
+        "denied"
       ]
     },
     "approved_by": {
       "type": "string",
       "minLength": 1
+    },
+    "approver_kind": {
+      "type": "string",
+      "const": "human"
     },
     "approved_at": {
       "type": "string",
@@ -62,12 +71,29 @@
       "type": "string",
       "pattern": "^[0-9a-f]{40}$"
     },
+    "pull_request": {
+      "type": "integer",
+      "minimum": 1
+    },
     "scope": {
       "type": "array",
       "minItems": 1,
+      "uniqueItems": true,
       "items": {
         "type": "string",
-        "minLength": 1
+        "enum": [
+          "implementation",
+          "merge",
+          "protected_path_change",
+          "database_migration",
+          "feature_flag_activation",
+          "secret_change",
+          "deploy_staging",
+          "deploy_production",
+          "release",
+          "production_change",
+          "rollback"
+        ]
       }
     },
     "expires_at": {

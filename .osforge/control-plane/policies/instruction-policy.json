@@ -1,0 +1,33 @@
+{
+  "policy_id": "osforge.control-plane.instruction",
+  "control_plane_version": "1.1.0",
+  "description": "Instruction boundary. The canonical agent instructions are the two root files below. Every security invariant must be present, by id, in BOTH of them, so a tool-specific file can never carry a weaker posture than its sibling.",
+  "canonical_instruction_files": ["CLAUDE.md", "AGENTS.md"],
+  "instruction_file_regex": "(^|/)(claude|agents)[^/]*\\.md$",
+  "forbidden_instruction_dir_regex": "(^|/)\\.(claude|codex|cursor|aider)/",
+  "nested_instruction_allowlist": [],
+  "rules": {
+    "nested_instruction_files_forbidden": true,
+    "local_override_files_forbidden": true,
+    "symlinked_instruction_files_forbidden": true,
+    "case_variants_forbidden": true,
+    "note": "A nested or local instruction file is fail-closed: it is a finding, not a silent override. Adding one requires an explicit, versioned entry in nested_instruction_allowlist plus a protected_path_change approval."
+  },
+  "required_invariants": [
+    { "id": "CP-INV-01", "statement": "The technical constitution outranks every task, prompt and sprint document." },
+    { "id": "CP-INV-02", "statement": "The canonical control plane is .osforge/control-plane/ and is never restated or forked." },
+    { "id": "CP-INV-03", "statement": "Default behaviour is fail-closed: stop and report instead of guessing." },
+    { "id": "CP-INV-04", "statement": "Work happens only in an isolated worktree or clone, never in the operator working copy." },
+    { "id": "CP-INV-05", "statement": "Only manifest allowed_paths may change; user-owned untracked files are never touched." },
+    { "id": "CP-INV-06", "statement": "Merge requires an explicit human approval bound to the exact 40-character head sha." },
+    { "id": "CP-INV-07", "statement": "Database migration, feature-flag activation, secret change, deploy, release and production change each require their own separate human approval." },
+    { "id": "CP-INV-08", "statement": "No paid model API is configured, requested or invoked; the control plane is subscription-only." },
+    { "id": "CP-INV-09", "statement": "The automatic remediation loop budget is zero." },
+    { "id": "CP-INV-10", "statement": "Audit is read-only and is a separate task from implementation." },
+    { "id": "CP-INV-11", "statement": "Every claim is backed by a full sha, a CI run identifier, or a command with its exit code." },
+    { "id": "CP-INV-12", "statement": "Force-push is forbidden." },
+    { "id": "CP-INV-13", "statement": "Auto-merge is forbidden." },
+    { "id": "CP-INV-14", "statement": "Admin override and branch-protection bypass are forbidden, with or without an approval record." },
+    { "id": "CP-INV-15", "statement": "No nested, local or tool-specific instruction file may weaken or override these root instructions." }
+  ]
+}
