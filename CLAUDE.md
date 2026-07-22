@@ -23,6 +23,21 @@ Modlar ayridir ve karistirilamaz: `prompts/plan.md`, `prompts/implement.md`,
 Her goreve baslamadan once bir task manifest bulunmali ve dogrulanmalidir:
 `node .osforge/control-plane/scripts/validate-manifest.mjs task <dosya>`.
 
+## Consumer repository'ler (CP1-A.1)
+
+- Baska bir repository yalnizca resmi entrypoint ile dogrulanir:
+  `.osforge/control-plane/scripts/validate-consumer-project.mjs`, explicit `--repo-root`
+  ve `--core-root` ile. Gizli calisma dizini varsayimi yoktur.
+- O repository'de bir goreve baslamadan ONCE project manifest dogrulamasi zorunludur.
+- Exact osforge-core `owner/repo` ve tam 40 karakterlik commit pin'i zorunludur. Branch,
+  tag, `latest`, kisa SHA, fork veya ayni isimli baska repository reddedilir.
+- Kontrol duzlemi consumer repository'ye kopyalanamaz veya catallanamaz; pinlenmis
+  checkout'tan okunur.
+- External repository root kanitlanmalidir: absolute, canonical, gercek bir git
+  repository ve onun koku. Traversal ve symlink kacislari sert duraktir.
+- Sozlesme ve operator rehberi: `docs/control-plane/CONSUMER_INTERFACE.md` ve
+  `docs/control-plane/ADOPTION_GUIDE.md`.
+
 ## Guvenlik degismezleri (CLAUDE.md ve AGENTS.md icin AYNIDIR)
 
 Bu liste `.osforge/control-plane/policies/instruction-policy.json` dosyasindaki

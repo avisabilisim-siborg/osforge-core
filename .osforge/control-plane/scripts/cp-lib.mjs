@@ -7,6 +7,21 @@ import { join } from "node:path";
 
 export const CONTROL_PLANE_DIR = ".osforge/control-plane";
 
+/**
+ * Absolute (or repository-relative) location of the canonical control plane.
+ *
+ * With no argument this returns the historical, cwd-relative constant, so every
+ * existing same-repository caller keeps its exact behaviour. Consumer mode passes
+ * the resolved osforge-core checkout root instead, because a consumer repository
+ * never contains a copy of the control plane.
+ */
+export function controlPlaneDirFor(coreRoot) {
+  if (coreRoot === undefined || coreRoot === null || coreRoot === "") {
+    return CONTROL_PLANE_DIR;
+  }
+  return join(coreRoot, CONTROL_PLANE_DIR).split("\\").join("/");
+}
+
 /** Reads and parses JSON. Throws a explicit error instead of returning undefined. */
 export function readJson(path) {
   if (!existsSync(path)) {
@@ -45,6 +60,14 @@ export function listFiles(dir) {
 
 // eslint-disable-next-line no-control-regex
 const CONTROL_CHARS = new RegExp("[\u0000-\u001f\u007f]", "u");
+
+/**
+ * True when a string carries a control character, a NUL or a newline. Shared so
+ * every surface (paths, repository roots, CLI arguments) rejects the same bytes.
+ */
+export function hasControlChars(raw) {
+  return typeof raw !== "string" || CONTROL_CHARS.test(raw);
+}
 
 /**
  * Canonicalises a repository-relative path before any policy decision is taken.

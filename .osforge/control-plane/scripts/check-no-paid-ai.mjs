@@ -17,6 +17,7 @@
 // `known_limitations` in cost-policy.json — the limitation is declared, not hidden.
 import { execFileSync } from "node:child_process";
 import { readFileSync, statSync } from "node:fs";
+import { join } from "node:path";
 import { readJson, matchesAny, runCli, CONTROL_PLANE_DIR } from "./cp-lib.mjs";
 
 const BASE64_LITERAL = /[A-Za-z0-9+/]{16,}={0,2}/gu;
@@ -119,7 +120,9 @@ export function trackedTextFiles(policy, cwd = process.cwd()) {
     }
     let size = 0;
     try {
-      size = statSync(file).size;
+      // Resolved against the scanned repository root, not the process working
+      // directory: in consumer mode those are two different trees.
+      size = statSync(join(cwd, file)).size;
     } catch {
       // A tracked path that cannot be stat'ed (submodule, broken link) is not
       // silently skipped: it is reported so a human can classify it.

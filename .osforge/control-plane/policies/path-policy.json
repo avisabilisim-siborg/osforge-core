@@ -72,6 +72,17 @@
     "ddg.html",
     "docs/design/**"
   ],
+  "consumer_minimum_protected_paths": [
+    ".github/workflows/**",
+    "CLAUDE.md",
+    "AGENTS.md",
+    "**/CLAUDE*.md",
+    "**/AGENTS*.md",
+    ".osforge/project.json",
+    ".osforge/control-plane.lock.json",
+    ".osforge/policies/**"
+  ],
+  "consumer_minimum_note": "A consumer project path policy must carry at least these protected patterns, plus every entry of always_forbidden_paths (as forbidden_paths), secret_paths, generated_paths, migration_paths and production_paths. check-path-policy.mjs enforces the superset relation; a consumer may add more, never fewer.",
   "always_forbidden_paths": [
     ".env",
     ".env.*",

@@ -14,18 +14,31 @@ export const REQUIRED_POLICIES = [
   "risk-policy",
   "instruction-policy"
 ];
-export const REQUIRED_SCHEMAS = ["task", "audit", "approval", "state"];
-export const REQUIRED_TEMPLATES = ["task", "audit", "approval", "state"];
+export const REQUIRED_SCHEMAS = [
+  "task", "audit", "approval", "state", "project", "version-lock", "project-path-policy"
+];
+export const REQUIRED_TEMPLATES = [
+  "task", "audit", "approval", "state", "project", "version-lock", "project-path-policy"
+];
 export const REQUIRED_SCRIPTS = [
   "cp-lib",
+  "repo-root",
   "validate-manifest",
   "validate-control-plane",
+  "validate-consumer-project",
   "check-path-policy",
   "check-human-gates",
   "check-no-paid-ai",
   "check-workflow-permissions",
   "check-prompt-consistency",
   "check-instruction-boundary"
+];
+
+/** Consumer interface artefacts that must ship with the canonical plane. */
+export const REQUIRED_CONSUMER_ARTEFACTS = [
+  `${CONTROL_PLANE_DIR}/templates/consumer-ci.template.yml`,
+  "docs/control-plane/CONSUMER_INTERFACE.md",
+  "docs/control-plane/ADOPTION_GUIDE.md"
 ];
 
 /** Policy keys that must be consumed by code, not merely declared as data. */
@@ -37,7 +50,8 @@ const ENFORCED_POLICY_KEYS = {
     "secret_paths",
     "migration_paths",
     "production_paths",
-    "generated_paths"
+    "generated_paths",
+    "consumer_minimum_protected_paths"
   ],
   "workflow-policy": [
     "allowed_events",
@@ -126,6 +140,18 @@ export function controlPlaneFindings() {
   const prereqFile = "docs/control-plane/REPOSITORY_PREREQUISITES.md";
   if (!existsSync(prereqFile)) {
     findings.push(`missing repository prerequisite record: ${prereqFile}`);
+  }
+  for (const file of REQUIRED_CONSUMER_ARTEFACTS) {
+    if (!existsSync(file)) {
+      findings.push(`missing consumer interface artefact: ${file}`);
+    }
+  }
+  // The canonical classes a consumer policy must carry are data, not prose: an
+  // empty list here would silently turn the superset rule into a no-op.
+  const pathPolicyFile = `${CONTROL_PLANE_DIR}/policies/path-policy.json`;
+  const pathPolicy = existsSync(pathPolicyFile) ? readJson(pathPolicyFile) : {};
+  if ((pathPolicy.consumer_minimum_protected_paths ?? []).length === 0) {
+    findings.push("path policy must declare consumer_minimum_protected_paths for the consumer interface");
   }
   return findings;
 }

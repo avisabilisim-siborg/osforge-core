@@ -3,10 +3,23 @@
 // Schema validation is only the first layer; the security cross-field rules below
 // are what actually keep the plane fail-closed. Pure Node, no dependencies.
 //
-// Usage: node .osforge/control-plane/scripts/validate-manifest.mjs <kind> <file>
-import { readJson, validateAgainstSchema, patternsConflict, runCli, CONTROL_PLANE_DIR } from "./cp-lib.mjs";
+// Usage: node .osforge/control-plane/scripts/validate-manifest.mjs <kind> <file> [--core-root <abs>]
+import {
+  readJson,
+  validateAgainstSchema,
+  patternsConflict,
+  normalizePath,
+  runCli,
+  controlPlaneDirFor
+} from "./cp-lib.mjs";
 
-export const KINDS = ["task", "audit", "approval", "state"];
+/** Manifests that describe work inside a single repository (CP1-A). */
+export const REPOSITORY_KINDS = ["task", "audit", "approval", "state"];
+
+/** Manifests that describe how a consumer repository binds to this plane (CP1-A.1). */
+export const CONSUMER_KINDS = ["project", "version-lock", "project-path-policy"];
+
+export const KINDS = [...REPOSITORY_KINDS, ...CONSUMER_KINDS];
 
 const EFFECT_APPROVALS = {
   database_effect: { trigger: ["migration_applied"], approval: "database_migration" },
@@ -238,11 +251,172 @@ export function isApprovalUsable(approval, targetSha, nowIso, context = {}) {
   return approvalRejections(approval, { ...context, targetSha, nowIso }).length === 0;
 }
 
-export function validateManifest(kind, manifest) {
+// ---------------------------------------------------------------------------
+// Consumer interface manifests (CP1-A.1)
+// ---------------------------------------------------------------------------
+
+/** A full, lower-case, 40-character commit object name. Nothing else is a pin. */
+export const FULL_COMMIT_SHA = /^[0-9a-f]{40}$/u;
+
+/** Project manifest fields that address a location inside the consumer repository. */
+export const PROJECT_PATH_FIELDS = [
+  "project_policy_path",
+  "task_directory",
+  "audit_directory",
+  "approval_directory",
+  "state_directory"
+];
+
+/** Human gates a consumer project can never switch off. */
+export const PROJECT_REQUIRED_GATES = [
+  "human_merge_approval_required",
+  "database_migration_approval_required",
+  "feature_flag_approval_required",
+  "secret_change_approval_required",
+  "deploy_approval_required",
+  "production_approval_required"
+];
+
+/** Classifications for which tenant isolation is not a project-level choice. */
+export const ISOLATION_REQUIRED_CLASSIFICATIONS = ["RESTRICTED", "CRITICAL"];
+
+/**
+ * Rejects anything that is not an exact commit pin. A branch name, a tag, the
+ * word `latest` and an abbreviated sha all land here, and the message says which
+ * one it was, because "invalid pin" is not an actionable audit statement.
+ */
+export function commitPinErrors(field, value) {
+  if (typeof value !== "string" || value === "") {
+    return [`${field} must be a full 40-character commit sha`];
+  }
+  if (FULL_COMMIT_SHA.test(value)) {
+    return [];
+  }
+  if (/^[0-9a-f]{4,39}$/u.test(value)) {
+    return [`${field} is an abbreviated sha; only a full 40-character commit sha is a valid pin`];
+  }
+  if (/^[0-9a-fA-F]{40}$/u.test(value)) {
+    return [`${field} must be lower-case hexadecimal`];
+  }
+  return [`${field} is a mutable reference ('${value}'); a branch, tag or 'latest' is never a valid pin`];
+}
+
+/**
+ * Validates a POLICY PATTERN (not a concrete path). Wildcards are substituted so
+ * the canonicaliser sees a representative path, and `.git/**` is accepted here
+ * because forbidding the git directory is exactly what such a pattern is for —
+ * while a concrete changed path under `.git` stays rejected at evaluation time.
+ */
+export function patternPathError(pattern) {
+  if (typeof pattern !== "string" || pattern === "") {
+    return "pattern is empty or not a string";
+  }
+  const probe = pattern.replace(/\*/gu, "x");
+  const normalised = normalizePath(probe);
+  if (normalised.ok) {
+    return null;
+  }
+  if (normalised.reason.includes("git directory")) {
+    return null;
+  }
+  return normalised.reason;
+}
+
+/** Security cross-field rules for a consumer project manifest. */
+export function validateProjectRules(project) {
+  const errors = [];
+  if (project.kind !== "project") {
+    errors.push("project.kind must be exactly 'project'");
+  }
+  if (project.paid_ai_allowed !== false) {
+    errors.push("project.paid_ai_allowed must be false (subscription-only control plane)");
+  }
+  if (project.max_remediation_loops !== 0) {
+    errors.push("project.max_remediation_loops must be 0 in control plane v1");
+  }
+  for (const gate of PROJECT_REQUIRED_GATES) {
+    if (project[gate] !== true) {
+      errors.push(`project.${gate} must be true (human sovereignty is not a project-level option)`);
+    }
+  }
+  if (
+    ISOLATION_REQUIRED_CLASSIFICATIONS.includes(project.security_classification) &&
+    project.tenant_isolation_required !== true
+  ) {
+    errors.push(
+      `project.tenant_isolation_required must be true for security_classification ${project.security_classification}`
+    );
+  }
+  errors.push(...commitPinErrors("project.control_plane_commit", project.control_plane_commit));
+  for (const field of ["repository", "control_plane_repository"]) {
+    if (typeof project[field] !== "string" || !/^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/u.test(project[field])) {
+      errors.push(`project.${field} must be an exact 'owner/repo' slug`);
+    }
+  }
+  for (const field of PROJECT_PATH_FIELDS) {
+    const normalised = normalizePath(project[field]);
+    if (!normalised.ok) {
+      errors.push(`project.${field} is not a safe repository-relative path (${normalised.reason})`);
+    }
+  }
+  for (const path of project.user_owned_untracked_paths ?? []) {
+    const reason = patternPathError(path);
+    if (reason) {
+      errors.push(`project.user_owned_untracked_paths entry is not repository-relative (${reason})`);
+    }
+  }
+  return errors;
+}
+
+/** Security cross-field rules for a control plane version lock. */
+export function validateVersionLockRules(lock) {
+  const errors = [];
+  if (lock.kind !== "version-lock") {
+    errors.push("version-lock.kind must be exactly 'version-lock'");
+  }
+  errors.push(...commitPinErrors("version-lock.control_plane_commit", lock.control_plane_commit));
+  if (typeof lock.control_plane_repository !== "string" ||
+      !/^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/u.test(lock.control_plane_repository)) {
+    errors.push("version-lock.control_plane_repository must be an exact 'owner/repo' slug");
+  }
+  if (typeof lock.compatibility_version !== "string" || !/^[0-9]+$/u.test(lock.compatibility_version)) {
+    errors.push("version-lock.compatibility_version must be the canonical control plane major version");
+  }
+  return errors;
+}
+
+/** Security cross-field rules for a consumer project path policy document. */
+export function validateProjectPathPolicyRules(policy) {
+  const errors = [];
+  if (policy.kind !== "project-path-policy") {
+    errors.push("project-path-policy.kind must be exactly 'project-path-policy'");
+  }
+  const classes = [
+    "allowed_paths", "forbidden_paths", "protected_paths", "migration_paths",
+    "secret_paths", "production_paths", "generated_paths", "user_owned_untracked_paths"
+  ];
+  for (const name of classes) {
+    for (const pattern of policy[name] ?? []) {
+      const reason = patternPathError(pattern);
+      if (reason) {
+        errors.push(
+          `project-path-policy.${name} pattern ${JSON.stringify(pattern)} is not repository-relative (${reason})`
+        );
+      }
+    }
+  }
+  errors.push(
+    ...patternsConflict(policy.allowed_paths, policy.forbidden_paths).map((e) => `project-path-policy.${e}`)
+  );
+  return errors;
+}
+
+export function validateManifest(kind, manifest, options = {}) {
   if (!KINDS.includes(kind)) {
     return [`unknown manifest kind: ${kind}`];
   }
-  const schema = readJson(`${CONTROL_PLANE_DIR}/schemas/${kind}.schema.json`);
+  const dir = controlPlaneDirFor(options.coreRoot);
+  const schema = readJson(`${dir}/schemas/${kind}.schema.json`);
   const errors = validateAgainstSchema(manifest, schema, kind);
   if (errors.length > 0) {
     return errors;
@@ -256,15 +430,36 @@ export function validateManifest(kind, manifest) {
   if (kind === "approval") {
     return validateApprovalRules(manifest);
   }
+  if (kind === "project") {
+    return validateProjectRules(manifest);
+  }
+  if (kind === "version-lock") {
+    return validateVersionLockRules(manifest);
+  }
+  if (kind === "project-path-policy") {
+    return validateProjectPathPolicyRules(manifest);
+  }
   return [];
 }
 
 if (process.argv[1] && process.argv[1].endsWith("validate-manifest.mjs")) {
   runCli("MANIFEST_VALIDATION", () => {
-    const [kind, file] = process.argv.slice(2);
-    if (!kind || !file) {
-      throw new Error("usage: validate-manifest.mjs <task|audit|approval|state> <file>");
+    const argv = process.argv.slice(2);
+    const positional = [];
+    let coreRoot;
+    for (let i = 0; i < argv.length; i += 1) {
+      if (argv[i] === "--core-root") {
+        coreRoot = argv[++i];
+      } else if (argv[i].startsWith("--")) {
+        throw new Error(`unknown option: ${argv[i]}`);
+      } else {
+        positional.push(argv[i]);
+      }
     }
-    return validateManifest(kind, readJson(file));
+    const [kind, file] = positional;
+    if (!kind || !file) {
+      throw new Error(`usage: validate-manifest.mjs <${KINDS.join("|")}> <file> [--core-root <absolute-path>]`);
+    }
+    return validateManifest(kind, readJson(file), { coreRoot });
   });
 }

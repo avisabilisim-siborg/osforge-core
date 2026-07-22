@@ -1,0 +1,105 @@
+{
+  "schema_version": "1.1.0",
+  "control_plane_version": "1.1.0",
+  "task_id": "CP1-A.1",
+  "project": "osforge-core",
+  "repository": "avisabilisim-siborg/osforge-core",
+  "phase_id": "CP1-A.1",
+  "title": "Canonical control plane consumer interface foundation",
+  "mode": "implement",
+  "risk_level": "HIGH",
+  "base_branch": "main",
+  "working_branch": "feat/control-plane/cp1-a1-consumer-interface",
+  "objective": "Add the canonical, versioned, fail-closed consumer interface (project manifest contract, exact control plane version lock, explicit external repository-root validation, external project path policy, a single consumer validation entrypoint and a deterministic consumer CI contract) so another repository can be governed by this control plane without copying or forking it.",
+  "source_of_truth": [
+    "docs/000_OSFORGE_CONSTITUTION.md",
+    "docs/control-plane/SECURITY_MODEL.md",
+    "docs/control-plane/THREAT_MODEL.md",
+    "docs/control-plane/CONSUMER_INTERFACE.md"
+  ],
+  "prerequisites": [
+    "CP1-A merged into main and verified",
+    "no consumer repository change is part of this task"
+  ],
+  "allowed_paths": [
+    ".osforge/control-plane/**",
+    ".osforge/tasks/**",
+    "docs/control-plane/**",
+    ".github/workflows/osforge-control-plane-ci.yml",
+    "tests/control-plane-policy.test.mjs",
+    "tests/control-plane-adversarial.test.mjs",
+    "tests/control-plane-consumer.test.mjs",
+    "CLAUDE.md",
+    "AGENTS.md"
+  ],
+  "forbidden_paths": [
+    "packages/**",
+    "docs/security/**",
+    "docs/adr/**",
+    "docs/architecture/**",
+    ".github/workflows/core-ci.yml",
+    "package.json",
+    "package-lock.json",
+    "**/migrations/**"
+  ],
+  "allowed_operations": [
+    "read",
+    "write_allowed_paths",
+    "run_tests",
+    "commit",
+    "push",
+    "open_pull_request"
+  ],
+  "forbidden_operations": [
+    "merge",
+    "database_migration",
+    "feature_flag_activation",
+    "secret_change",
+    "deploy",
+    "release",
+    "force_push",
+    "admin_override",
+    "branch_protection_change",
+    "repository_visibility_change",
+    "ruleset_change"
+  ],
+  "required_checks": [
+    "control-plane-validation",
+    "path-policy",
+    "instruction-boundary",
+    "no-paid-ai",
+    "workflow-permissions",
+    "prompt-consistency",
+    "consumer-interface",
+    "typecheck",
+    "tests",
+    "secret-scan"
+  ],
+  "required_evidence": [
+    "full head sha",
+    "ci run id",
+    "changed file list",
+    "local command exit codes"
+  ],
+  "human_approvals": [
+    "merge",
+    "protected_path_change"
+  ],
+  "database_effect": "none",
+  "runtime_effect": "none",
+  "feature_flag_effect": "none",
+  "secret_effect": "none",
+  "deploy_effect": "none",
+  "rollback_strategy": "git revert of the merge commit; the consumer interface is additive governance data, schemas and read-only validators, so no runtime or data rollback is involved",
+  "out_of_scope": [
+    "Glowia / SalonLumi repository changes (CP1-B)",
+    "K1-B2 implementation (CP1-C)",
+    "repository ruleset and branch protection changes",
+    "product runtime wiring, migrations, deploys and releases",
+    "pinning actions in .github/workflows/core-ci.yml (tracked as repository prerequisite P7)"
+  ],
+  "max_remediation_loops": 0,
+  "paid_ai_allowed": false,
+  "created_by": "human-operator",
+  "created_at": "2026-07-22T19:00:00.000Z"
+}

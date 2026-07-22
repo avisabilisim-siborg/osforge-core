@@ -207,6 +207,100 @@ export function workflowFindings(files, readFile, policy) {
   return findings;
 }
 
+// ---------------------------------------------------------------------------
+// Canonical consumer CI contract (CP1-A.1)
+// ---------------------------------------------------------------------------
+
+const CHECKOUT_ACTION = /^actions\/checkout@/u;
+const FULL_COMMIT_SHA = /^[0-9a-f]{40}$/u;
+
+/** Every `actions/checkout` step with its `with:` block, in declaration order. */
+export function checkoutSteps(doc) {
+  const out = [];
+  for (const [jobId, job] of Object.entries(doc?.jobs ?? {})) {
+    if (!job || typeof job !== "object") {
+      continue;
+    }
+    for (const step of job.steps ?? []) {
+      if (!step || typeof step !== "object" || typeof step.uses !== "string") {
+        continue;
+      }
+      if (CHECKOUT_ACTION.test(step.uses)) {
+        out.push({ where: `job:${jobId}`, uses: step.uses, with: step.with ?? {} });
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * The consumer CI contract on top of the ordinary workflow policy.
+ *
+ * A consumer repository does not copy the control plane; it checks the canonical
+ * repository out at an EXACT commit next to its own tree. That is only safe when
+ * the checkout is credential-free, the control plane repository slug matches the
+ * project manifest exactly (a fork with the same name is a different repository),
+ * and the ref is a full commit sha rather than a branch, tag or `latest`.
+ *
+ * This is the DELTA on top of `workflowFindings`; callers run both, so an adapter
+ * workflow is held to the ordinary least-privilege contract as well.
+ *
+ * @param expected { controlPlaneRepository, controlPlaneCommit }
+ */
+export function consumerWorkflowFindings(files, readFile, expected) {
+  const findings = [];
+  for (const file of files) {
+    let doc;
+    try {
+      doc = parseYamlSubset(readFile(file));
+    } catch {
+      // Already reported by workflowFindings; never evaluated further.
+      continue;
+    }
+    const checkouts = checkoutSteps(doc);
+    if (checkouts.length === 0) {
+      findings.push(`${file}: consumer workflow declares no checkout step`);
+      continue;
+    }
+    let controlPlaneCheckouts = 0;
+    for (const step of checkouts) {
+      if (step.with["persist-credentials"] !== false) {
+        findings.push(`${file} (${step.where}): checkout must set persist-credentials: false`);
+      }
+      const repository = step.with.repository === undefined ? undefined : String(step.with.repository);
+      if (repository === undefined) {
+        continue;
+      }
+      if (repository !== expected.controlPlaneRepository) {
+        findings.push(
+          `${file} (${step.where}): checkout of '${repository}' is not the pinned control plane repository '${expected.controlPlaneRepository}'`
+        );
+        continue;
+      }
+      controlPlaneCheckouts += 1;
+      const ref = step.with.ref === undefined ? "" : String(step.with.ref);
+      if (!FULL_COMMIT_SHA.test(ref)) {
+        findings.push(
+          `${file} (${step.where}): control plane ref '${ref}' is not a full 40-character commit sha (a branch, tag or 'latest' is never a valid pin)`
+        );
+        continue;
+      }
+      if (ref !== expected.controlPlaneCommit) {
+        findings.push(
+          `${file} (${step.where}): control plane ref ${ref} does not match the pinned commit ${expected.controlPlaneCommit}`
+        );
+      }
+    }
+    if (controlPlaneCheckouts === 0) {
+      findings.push(`${file}: consumer workflow never checks out the canonical control plane at its pinned commit`);
+    }
+    if (controlPlaneCheckouts > 1) {
+      findings.push(`${file}: consumer workflow checks out the control plane more than once (ambiguous pin)`);
+    }
+  }
+  return findings;
+}
+
 export function trackedWorkflows(cwd = process.cwd()) {
   const out = execFileSync("git", ["ls-files", "-z", ".github/workflows"], {
     cwd,

@@ -19,6 +19,23 @@ Tooling details may differ from `CLAUDE.md`; the security posture may not.
 - Find the task manifest for the task id you were given, then validate it:
   `node .osforge/control-plane/scripts/validate-manifest.mjs task <file>`.
 
+## Consumer repositories (CP1-A.1)
+
+- Another repository is validated only through the official entry point
+  `.osforge/control-plane/scripts/validate-consumer-project.mjs`, with explicit
+  `--repo-root` and `--core-root`. There is no working-directory fallback.
+- Validating a consumer project manifest is mandatory **before** any task in that
+  repository is started.
+- An exact osforge-core `owner/repo` and a full 40-character commit pin are required. A
+  branch, a tag, `latest`, an abbreviated sha, a fork or a same-named repository is
+  rejected.
+- The control plane is never copied or forked into a consumer repository; it is read from
+  the pinned checkout.
+- The external repository root must be proven: absolute, canonical, a git repository, and
+  its root. Traversal and symlink escapes are hard failures.
+- Contract and operator guides: `docs/control-plane/CONSUMER_INTERFACE.md` and
+  `docs/control-plane/ADOPTION_GUIDE.md`.
+
 ## Security invariants (IDENTICAL to CLAUDE.md)
 
 This list is the machine-readable set in
