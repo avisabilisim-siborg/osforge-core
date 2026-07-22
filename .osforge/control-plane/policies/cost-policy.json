@@ -1,0 +1,119 @@
+{
+  "policy_id": "osforge.control-plane.cost",
+  "control_plane_version": "1.1.0",
+  "mode": "subscription-only",
+  "paid_ai_allowed": false,
+  "max_remediation_loops": 0,
+  "scan_surface": {
+    "strategy": "all-tracked-files-except-binary",
+    "binary_extensions": [
+      "png", "jpg", "jpeg", "gif", "webp", "ico", "svgz", "pdf", "zip", "gz", "tgz",
+      "bz2", "xz", "7z", "rar", "woff", "woff2", "ttf", "otf", "eot", "mp3", "mp4",
+      "mov", "avi", "wasm", "exe", "dll", "so", "dylib", "jar", "class", "bin",
+      "bundle", "keystore", "p12", "pfx"
+    ],
+    "max_file_bytes": 4194304,
+    "note": "There is no extension allowlist. A new config format, a shell script, a Dockerfile or a Python helper is scanned the moment it is tracked, so a new file type can never become a silent bypass."
+  },
+  "declaration_files": [
+    ".osforge/control-plane/policies/cost-policy.json",
+    ".osforge/control-plane/scripts/check-no-paid-ai.mjs",
+    ".osforge/control-plane/prompts/implement.md",
+    ".osforge/control-plane/README.md",
+    "docs/control-plane/SUBSCRIPTION_ONLY_OPERATOR_GUIDE.md",
+    "docs/control-plane/SECURITY_MODEL.md",
+    "docs/control-plane/THREAT_MODEL.md",
+    "docs/control-plane/ADOPTION_GUIDE.md",
+    "docs/control-plane/REPOSITORY_PREREQUISITES.md",
+    "tests/control-plane-policy.test.mjs",
+    "tests/control-plane-adversarial.test.mjs",
+    "AGENTS.md",
+    "CLAUDE.md"
+  ],
+  "declaration_never_applies_to": {
+    "paid_ai_allowed_true": true,
+    "path_patterns": [".github/workflows/**", "package.json", "package-lock.json", ".osforge/tasks/**"],
+    "note": "A declaration file may name the forbidden vocabulary because it defines the prohibition. It can never switch the prohibition off, and the exemption never covers a workflow, a package manifest or a task manifest."
+  },
+  "rules": [
+    {
+      "id": "endpoint.paid-model-host",
+      "scope": "all",
+      "flags": "iu",
+      "why": "paid model API endpoint",
+      "pattern": "(api\\.openai\\.com|api\\.anthropic\\.com|[a-z0-9-]+\\.openai\\.azure\\.com|bedrock(-runtime)?\\.[a-z0-9-]+\\.amazonaws\\.com|aiplatform\\.googleapis\\.com|generativelanguage\\.googleapis\\.com|models\\.inference\\.ai\\.azure\\.com|models\\.github\\.ai|openrouter\\.ai|api\\.groq\\.com|api\\.together\\.(ai|xyz)|api\\.fireworks\\.ai|api\\.mistral\\.ai|api\\.cohere\\.(ai|com)|api-inference\\.huggingface\\.co|api\\.replicate\\.com|api\\.deepseek\\.com|api\\.perplexity\\.ai|api\\.x\\.ai)"
+    },
+    {
+      "id": "endpoint.openai-compatible-path",
+      "scope": "all",
+      "flags": "iu",
+      "why": "OpenAI-compatible inference route (generic gateway or proxy)",
+      "pattern": "https?://[^\\s\"'`]+/(v1/(chat/completions|completions|embeddings|responses)|generateContent|invoke-with-response-stream)"
+    },
+    {
+      "id": "credential.provider-env-name",
+      "scope": "all",
+      "flags": "u",
+      "why": "paid model credential or base-url environment variable",
+      "pattern": "\\b[A-Z0-9_]*(OPENAI|ANTHROPIC|CLAUDE|GEMINI|GOOGLE_AI|GOOGLEAI|VERTEX_AI|BEDROCK|GROQ|MISTRAL|COHERE|HUGGINGFACE|REPLICATE|TOGETHER_AI|FIREWORKS|OPENROUTER|DEEPSEEK|PERPLEXITY|AZURE_OPENAI)[A-Z0-9_]*_(API_?KEY|KEY|TOKEN|SECRET|BASE_?URL|ENDPOINT|ORGANIZATION_ID|ORG_ID)\\b"
+    },
+    {
+      "id": "sdk.paid-model-client",
+      "scope": "all",
+      "flags": "u",
+      "why": "paid model SDK or client library",
+      "pattern": "(@anthropic-ai/|@aws-sdk/client-bedrock|@google-cloud/aiplatform|@google/generative-ai|@azure/openai|@mistralai/|BedrockRuntimeClient|InvokeModelCommand|GenerativeModel\\(|new OpenAI\\(|OpenAIApi|from ['\"]openai['\"]|require\\(['\"]openai['\"]\\)|from ['\"]@anthropic-ai/sdk['\"]|langchain|llamaindex)"
+    },
+    {
+      "id": "action.model-invoking",
+      "scope": "all",
+      "flags": "iu",
+      "why": "GitHub Action or CLI that invokes a model",
+      "pattern": "(claude-code(-base)?-action|anthropics/claude-code|openai-action|actions/ai-inference|bedrock-invoke-model|vertex-predict|aws\\s+bedrock\\s+invoke|gcloud\\s+ai\\s+(models|endpoints)\\s+predict|npx\\s+[^\\n]*(claude-code|@anthropic-ai|openai|llm-cli|aichat)|ollama\\s+run)"
+    },
+    {
+      "id": "flag.paid-ai-enabled",
+      "scope": "all",
+      "flags": "iu",
+      "always_applies": true,
+      "negative_fixture_paths": ["tests/control-plane-policy.test.mjs", "tests/control-plane-adversarial.test.mjs"],
+      "why": "paid_ai_allowed must never be true",
+      "pattern": "paid_ai_allowed\"?\\s*[:=]\\s*(true|\"true\"|yes)\\b"
+    },
+    {
+      "id": "egress.control-plane-network-call",
+      "scope": "control-plane",
+      "flags": "u",
+      "why": "the control plane surface performs no network call of any kind",
+      "pattern": "(\\bfetch\\s*\\(|\\baxios\\b|https?\\.request\\s*\\(|new WebSocket\\(|\\bcurl\\s+-|\\bwget\\s+|undici)"
+    },
+    {
+      "id": "egress.control-plane-remote-url",
+      "scope": "control-plane",
+      "flags": "iu",
+      "why": "no remote URL literal is allowed on the control plane surface",
+      "pattern": "https?://(?!localhost|127\\.0\\.0\\.1)[a-z0-9.-]+"
+    }
+  ],
+  "control_plane_scope": [
+    ".osforge/control-plane/scripts/**",
+    ".github/workflows/**"
+  ],
+  "base64_probe": {
+    "enabled": true,
+    "min_length": 16,
+    "note": "Base64-looking literals are decoded once and re-tested against the endpoint rules, so a hidden endpoint cannot pass as opaque data."
+  },
+  "forbidden_behaviour": [
+    "model invocation from CI",
+    "automatic AI remediation loop",
+    "usage credit auto-reload",
+    "third-party paid LLM gateway"
+  ],
+  "allowlist": [],
+  "known_limitations": [
+    "This is a source-level scanner, not a network egress control. It cannot observe traffic at runtime.",
+    "A provider whose endpoint, credential name, SDK identifier and CLI name are all unknown to the rule set above can still be missed on surfaces outside control_plane_scope.",
+    "Repository-wide network egress blocking is out of scope for control plane v1 and is recorded as an open risk in docs/control-plane/THREAT_MODEL.md."
+  ]
+}

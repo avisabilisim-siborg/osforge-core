@@ -1,0 +1,36 @@
+{
+  "policy_id": "osforge.control-plane.risk",
+  "control_plane_version": "1.1.0",
+  "levels": [
+    "LOW",
+    "MEDIUM",
+    "HIGH",
+    "CRITICAL"
+  ],
+  "critical_domains": [
+    "authentication",
+    "authorization",
+    "tenant_isolation",
+    "row_level_security",
+    "secrets",
+    "credentials",
+    "database_migration",
+    "destructive_schema_change",
+    "payment",
+    "production_deployment",
+    "runtime_security_boundary",
+    "feature_flag_activation",
+    "backup_restore",
+    "recovery",
+    "cross_tenant_access"
+  ],
+  "requirements_for_high_and_critical": {
+    "independent_audit_required": true,
+    "human_merge_approval_required": true,
+    "small_focused_pr_required": true,
+    "full_sha_verification_required": true,
+    "rollback_strategy_required": true,
+    "required_ci_required": true,
+    "auto_merge_forbidden": true
+  }
+}

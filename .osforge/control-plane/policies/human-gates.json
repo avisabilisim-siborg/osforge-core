@@ -1,0 +1,27 @@
+{
+  "policy_id": "osforge.control-plane.human-gates",
+  "control_plane_version": "1.1.0",
+  "never_automatic": [
+    "merge",
+    "database_migration",
+    "feature_flag_activation",
+    "secret_change",
+    "production_change",
+    "deploy",
+    "release",
+    "dns_change",
+    "hosting_change",
+    "real_user_data_operation",
+    "destructive_rollback",
+    "branch_protection_bypass",
+    "admin_override"
+  ],
+  "required_approvals_by_effect": {
+    "database_effect": "database_migration",
+    "feature_flag_effect": "feature_flag_activation",
+    "secret_effect": "secret_change",
+    "deploy_effect": "deploy"
+  },
+  "merge_approval_always_required": true,
+  "ci_may_perform_gated_operations": false
+}

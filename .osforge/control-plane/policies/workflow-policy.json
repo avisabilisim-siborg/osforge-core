@@ -1,0 +1,65 @@
+{
+  "policy_id": "osforge.control-plane.workflow",
+  "control_plane_version": "1.1.0",
+  "description": "Least-privilege workflow contract. Every key in this file is enforced by check-workflow-permissions.mjs, which parses the workflow with the deterministic YAML subset parser instead of matching lines.",
+  "allowed_permission_values": ["read", "none"],
+  "required_permissions": { "contents": "read" },
+  "optional_permissions": { "pull-requests": "read" },
+  "allowed_events": ["pull_request", "push", "workflow_dispatch"],
+  "forbidden_events": [
+    "pull_request_target",
+    "workflow_run",
+    "repository_dispatch",
+    "schedule",
+    "workflow_call",
+    "issue_comment",
+    "pull_request_review",
+    "pull_request_review_comment",
+    "deployment",
+    "deployment_status",
+    "release",
+    "registry_package",
+    "check_run",
+    "check_suite",
+    "status"
+  ],
+  "action_pinning": {
+    "require_full_commit_sha": true,
+    "exceptions": [
+      {
+        "file": ".github/workflows/core-ci.yml",
+        "reason": "outside the CP1-A allowed_paths; pinning is tracked as repository prerequisite P7 in docs/control-plane/REPOSITORY_PREREQUISITES.md",
+        "expires_with": "CP1-A2"
+      }
+    ],
+    "note": "Mutable tags such as @v4 are rejected. Every exception is printed at runtime so it can never be a silent allowance."
+  },
+  "forbidden_run_patterns": [
+    { "pattern": "\\bgit\\s+push\\b", "why": "a workflow must never push" },
+    { "pattern": "\\bgit\\s+commit\\b", "why": "a workflow must never create a commit" },
+    { "pattern": "\\bgit\\s+tag\\b", "why": "a workflow must never create a tag" },
+    { "pattern": "\\bgit\\s+(branch|update-ref)\\b", "why": "a workflow must never mutate refs" },
+    { "pattern": "\\bgh\\s+pr\\s+(merge|create|edit|ready|close|review)\\b", "why": "a workflow must never drive a pull request" },
+    { "pattern": "\\bgh\\s+(release|workflow\\s+run|ruleset)\\b", "why": "a workflow must never release or reconfigure the repository" },
+    { "pattern": "\\bgh\\s+api\\b[^\\n]*(^|\\s)(-X|--method)\\s*(PUT|POST|PATCH|DELETE)\\b", "why": "a workflow must never call a mutating GitHub API" },
+    { "pattern": "\\bgh\\s+api\\b[^\\n]*(/merge|/merges|/pulls|/git/refs|/rulesets|/branches)", "why": "a workflow must never merge or mutate refs through the API" },
+    { "pattern": "(curl|wget)[^\\n]*api\\.github\\.com", "why": "a workflow must never call the GitHub API directly with curl or wget" },
+    { "pattern": "auto[-_ ]?merge", "why": "auto-merge configuration is forbidden" },
+    { "pattern": "enablePullRequestAutoMerge", "why": "auto-merge configuration is forbidden" },
+    { "pattern": "\\b(terraform|kubectl|helm|serverless)\\s+(apply|deploy|upgrade|rollout)\\b", "why": "a workflow must never deploy" },
+    { "pattern": "\\bnpm\\s+publish\\b", "why": "a workflow must never publish a package" }
+  ],
+  "forbidden_action_patterns": [
+    { "pattern": "push-action", "why": "commits or pushes on behalf of the workflow" },
+    { "pattern": "git-auto-commit", "why": "commits on behalf of the workflow" },
+    { "pattern": "add-and-commit", "why": "commits on behalf of the workflow" },
+    { "pattern": "create-pull-request", "why": "opens pull requests on behalf of the workflow" },
+    { "pattern": "auto[-_]?merge", "why": "enables auto-merge" },
+    { "pattern": "peter-evans/(create-pull-request|rebase)", "why": "mutates pull requests" }
+  ],
+  "forbidden_secret_usage": {
+    "repository_secrets": false,
+    "environment_secrets": false,
+    "note": "check-workflow-permissions.mjs rejects any ${{ secrets.* }} reference in a tracked workflow."
+  }
+}

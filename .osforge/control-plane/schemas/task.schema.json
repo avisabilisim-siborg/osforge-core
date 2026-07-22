@@ -1,0 +1,61 @@
+{
+  "$id": "osforge.control-plane.task",
+  "title": "OSForge Control Plane task manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "control_plane_version", "task_id", "project", "repository",
+    "phase_id", "title", "mode", "risk_level", "base_branch", "working_branch",
+    "objective", "source_of_truth", "prerequisites", "allowed_paths", "forbidden_paths",
+    "allowed_operations", "forbidden_operations", "required_checks", "required_evidence",
+    "human_approvals", "database_effect", "runtime_effect", "feature_flag_effect",
+    "secret_effect", "deploy_effect", "rollback_strategy", "out_of_scope",
+    "max_remediation_loops", "paid_ai_allowed", "created_by", "created_at"
+  ],
+  "properties": {
+    "schema_version": { "type": "string", "minLength": 1 },
+    "control_plane_version": { "type": "string", "minLength": 1 },
+    "task_id": { "type": "string", "pattern": "^[A-Z0-9][A-Z0-9._-]{2,63}$" },
+    "project": { "type": "string", "minLength": 1 },
+    "repository": { "type": "string", "pattern": "^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$" },
+    "phase_id": { "type": "string", "minLength": 1 },
+    "title": { "type": "string", "minLength": 1 },
+    "mode": { "type": "string", "enum": ["plan", "implement", "audit", "merge", "cleanup"] },
+    "risk_level": { "type": "string", "enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"] },
+    "base_branch": { "type": "string", "minLength": 1 },
+    "working_branch": { "type": "string", "minLength": 1 },
+    "objective": { "type": "string", "minLength": 1 },
+    "source_of_truth": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+    "prerequisites": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "allowed_paths": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+    "forbidden_paths": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "allowed_operations": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+    "forbidden_operations": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "required_checks": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+    "required_evidence": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+    "human_approvals": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "enum": [
+          "implementation", "merge", "protected_path_change", "database_migration",
+          "feature_flag_activation", "secret_change", "deploy", "release",
+          "production_change", "rollback"
+        ]
+      }
+    },
+    "database_effect": { "type": "string", "enum": ["none", "additive_artifact_only", "migration_applied"] },
+    "runtime_effect": { "type": "string", "enum": ["none", "behind_flag", "active"] },
+    "feature_flag_effect": { "type": "string", "enum": ["none", "declared_disabled", "activated"] },
+    "secret_effect": { "type": "string", "enum": ["none", "reference_only", "changed"] },
+    "deploy_effect": { "type": "string", "enum": ["none", "staging", "production"] },
+    "rollback_strategy": { "type": "string", "minLength": 1 },
+    "out_of_scope": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "max_remediation_loops": { "type": "integer", "maximum": 0 },
+    "paid_ai_allowed": { "type": "boolean", "const": false },
+    "created_by": { "type": "string", "minLength": 1 },
+    "created_at": { "type": "string", "format": "date-time" }
+  }
+}
