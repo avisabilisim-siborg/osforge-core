@@ -7,6 +7,21 @@ import { join } from "node:path";
 
 export const CONTROL_PLANE_DIR = ".osforge/control-plane";
 
+/**
+ * Absolute (or repository-relative) location of the canonical control plane.
+ *
+ * With no argument this returns the historical, cwd-relative constant, so every
+ * existing same-repository caller keeps its exact behaviour. Consumer mode passes
+ * the resolved osforge-core checkout root instead, because a consumer repository
+ * never contains a copy of the control plane.
+ */
+export function controlPlaneDirFor(coreRoot) {
+  if (coreRoot === undefined || coreRoot === null || coreRoot === "") {
+    return CONTROL_PLANE_DIR;
+  }
+  return join(coreRoot, CONTROL_PLANE_DIR).split("\\").join("/");
+}
+
 /** Reads and parses JSON. Throws a explicit error instead of returning undefined. */
 export function readJson(path) {
   if (!existsSync(path)) {
@@ -45,6 +60,14 @@ export function listFiles(dir) {
 
 // eslint-disable-next-line no-control-regex
 const CONTROL_CHARS = new RegExp("[\u0000-\u001f\u007f]", "u");
+
+/**
+ * True when a string carries a control character, a NUL or a newline. Shared so
+ * every surface (paths, repository roots, CLI arguments) rejects the same bytes.
+ */
+export function hasControlChars(raw) {
+  return typeof raw !== "string" || CONTROL_CHARS.test(raw);
+}
 
 /**
  * Canonicalises a repository-relative path before any policy decision is taken.
@@ -127,6 +150,39 @@ export function matchesAny(path, patterns) {
  */
 export function matchesAnyInsensitive(path, patterns) {
   return (patterns ?? []).some((p) => globToRegExp(p, "iu").test(path));
+}
+
+/**
+ * Segment-aware directory membership (audit finding M-1).
+ *
+ * A glob such as `dist/**` only covers the repository root, and `**​/dist/**` is
+ * NOT segment-aware in this matcher: `**` expands to `(?:[^/]+/)*[^/]*`, so it
+ * also swallows `mydist/`. Build output must be recognised by whole path
+ * SEGMENT, at any depth, which is what this helper does — and only this helper.
+ * The glob semantics of every other class stay exactly as they were.
+ *
+ * Only directory segments are considered: a FILE named `dist` is not build
+ * output. Comparison is case-insensitive on every platform, deliberately, so a
+ * case-insensitive filesystem cannot present `Dist/` as a different directory.
+ *
+ * `path` must already be canonicalised by `normalizePath`.
+ */
+export function hasDirectorySegment(path, directories) {
+  if (typeof path !== "string" || path === "") {
+    return false;
+  }
+  const names = new Set((directories ?? []).map((d) => String(d).toLowerCase()));
+  if (names.size === 0) {
+    return false;
+  }
+  const segments = path.split("/");
+  // The final segment is the changed file itself, never a directory.
+  for (let i = 0; i < segments.length - 1; i += 1) {
+    if (names.has(segments[i].toLowerCase())) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /**

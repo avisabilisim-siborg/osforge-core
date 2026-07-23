@@ -13,10 +13,12 @@ import {
   normalizePath,
   matchesAny,
   matchesAnyInsensitive,
+  hasDirectorySegment,
   patternsConflict,
   runCli,
   CONTROL_PLANE_DIR
 } from "./cp-lib.mjs";
+import { resolveRepoRoot } from "./repo-root.mjs";
 
 /** Git status letters that mean "this path is part of the change set". */
 const CHANGE_LETTERS = new Set(["A", "M", "D", "T", "C", "R"]);
@@ -66,6 +68,16 @@ export function changedPathsFromGit(baseSha, headSha, cwd = process.cwd()) {
   return parseNameStatusZ(out.toString("utf8"));
 }
 
+/**
+ * True when the path lies inside a build output directory at ANY depth.
+ * `dist/**` only covers the repository root and `**​/dist/**` also swallows
+ * `mydist/`, so recursive build output is matched by segment, not by glob
+ * (audit finding M-1).
+ */
+export function isBuildOutput(path, policy) {
+  return hasDirectorySegment(path, policy.build_output_directories);
+}
+
 function classify(path, policy) {
   return {
     protected: matchesAnyInsensitive(path, policy.protected_paths),
@@ -74,7 +86,7 @@ function classify(path, policy) {
     secret: matchesAnyInsensitive(path, policy.secret_paths),
     migration: matchesAnyInsensitive(path, policy.migration_paths),
     production: matchesAnyInsensitive(path, policy.production_paths),
-    generated: matchesAnyInsensitive(path, policy.generated_paths)
+    generated: matchesAnyInsensitive(path, policy.generated_paths) || isBuildOutput(path, policy)
   };
 }
 
@@ -142,13 +154,125 @@ export function checkPathPolicy(task, changes, policy, approvals = []) {
   return errors;
 }
 
+// ---------------------------------------------------------------------------
+// External consumer project path policy (CP1-A.1)
+// ---------------------------------------------------------------------------
+
+/**
+ * Classes a consumer path policy must carry at least as strictly as the canonical
+ * policy. A consumer extends these sets; removing an entry is a weakening and is
+ * a finding, because a forked-and-narrowed policy is worse than no policy at all.
+ */
+export const CONSUMER_MINIMUM_SOURCE = {
+  forbidden_paths: "always_forbidden_paths",
+  secret_paths: "secret_paths",
+  generated_paths: "generated_paths",
+  migration_paths: "migration_paths",
+  production_paths: "production_paths",
+  protected_paths: "consumer_minimum_protected_paths",
+  build_output_directories: "build_output_directories"
+};
+
+/**
+ * Reports every canonical class entry a consumer policy fails to carry.
+ * Comparison is exact on the pattern text: an "equivalent" pattern written a
+ * different way cannot be proven equivalent deterministically, so it is not
+ * accepted as a substitute.
+ */
+export function projectPolicyWeakenings(projectPolicy, canonicalPolicy) {
+  const findings = [];
+  for (const [consumerClass, canonicalClass] of Object.entries(CONSUMER_MINIMUM_SOURCE)) {
+    const required = canonicalPolicy[canonicalClass] ?? [];
+    if (required.length === 0) {
+      findings.push(`canonical path policy declares no '${canonicalClass}': refusing to report success`);
+      continue;
+    }
+    const declared = new Set(projectPolicy[consumerClass] ?? []);
+    for (const pattern of required) {
+      if (!declared.has(pattern)) {
+        findings.push(
+          `project-path-policy.${consumerClass} omits canonical ${canonicalClass} entry '${pattern}': ` +
+            "copy the canonical entry verbatim (comparison is exact text, so an 'equivalent' spelling is not accepted); a consumer extends, never weakens"
+        );
+      }
+    }
+  }
+  return findings;
+}
+
+/**
+ * Evaluates a consumer change set against the consumer project path policy.
+ *
+ * Semantics are identical to `checkPathPolicy`: canonicalise first, then apply the
+ * absolute classes, then the allow list, then the classes that stay reachable only
+ * with an explicit, matching human approval. The only difference is the source of
+ * the classes — a project policy inside the consumer repository instead of a task
+ * manifest plus the canonical policy.
+ *
+ * @param policy    validated project path policy
+ * @param changes   array of raw path strings, or `{status, path, origin}` records
+ * @param approvals approval records already validated against this exact head sha
+ */
+export function checkProjectPathPolicy(policy, changes, approvals = []) {
+  const errors = [...patternsConflict(policy.allowed_paths, policy.forbidden_paths)];
+  const approvalTypes = (approvals ?? []).map((a) => a.approval_type);
+
+  for (const entry of changes) {
+    const record = typeof entry === "string" ? { status: "M", path: entry, origin: "change" } : entry;
+    const normalised = normalizePath(record.path);
+    if (!normalised.ok) {
+      errors.push(`unsafe path rejected (${normalised.reason}): ${JSON.stringify(record.path)}`);
+      continue;
+    }
+    const path = normalised.path;
+    const where = record.origin === "change" ? path : `${path} [${record.origin}]`;
+
+    // 1. Absolute prohibitions. No consumer declaration can unlock these.
+    if (matchesAnyInsensitive(path, policy.forbidden_paths)) {
+      errors.push(`path is forbidden by the project path policy: ${where}`);
+      continue;
+    }
+    if (matchesAnyInsensitive(path, policy.user_owned_untracked_paths)) {
+      errors.push(`user-owned path must never be modified by an agent: ${where}`);
+      continue;
+    }
+    if (matchesAnyInsensitive(path, policy.secret_paths)) {
+      errors.push(`secret path must never be staged: ${where}`);
+      continue;
+    }
+    if (matchesAnyInsensitive(path, policy.generated_paths) || isBuildOutput(path, policy)) {
+      errors.push(`generated artefact must not be committed: ${where}`);
+      continue;
+    }
+
+    // 2. The allow list only applies to what survived the absolute classes.
+    if (!matchesAny(path, policy.allowed_paths)) {
+      errors.push(`path is outside the project allowed_paths: ${where}`);
+      continue;
+    }
+
+    // 3. Classes that stay reachable, but only with an exact human approval.
+    if (matchesAnyInsensitive(path, policy.protected_paths) && !approvalTypes.includes("protected_path_change")) {
+      errors.push(`protected path changed without a 'protected_path_change' approval: ${where}`);
+    }
+    if (matchesAnyInsensitive(path, policy.migration_paths) && !approvalTypes.includes("database_migration")) {
+      errors.push(`migration path changed without a 'database_migration' approval: ${where}`);
+    }
+    if (matchesAnyInsensitive(path, policy.production_paths) && !approvalTypes.includes("production_change")) {
+      errors.push(`production path changed without a 'production_change' approval: ${where}`);
+    }
+  }
+  return errors;
+}
+
 function parseArgs(argv) {
-  const args = { task: null, base: null, head: null, approvals: [], paths: [] };
+  const args = { task: null, base: null, head: null, repoRoot: null, approvals: [], paths: [] };
   for (let i = 0; i < argv.length; i += 1) {
     const a = argv[i];
     if (a === "--task") args.task = argv[++i];
     else if (a === "--base") args.base = argv[++i];
     else if (a === "--head") args.head = argv[++i];
+    else if (a === "--repo-root") args.repoRoot = argv[++i];
     else if (a === "--approval") args.approvals.push(argv[++i]);
     else if (a.startsWith("--")) throw new Error(`unknown option: ${a}`);
     else args.paths.push(a);
@@ -161,15 +285,26 @@ if (process.argv[1] && process.argv[1].endsWith("check-path-policy.mjs")) {
     const args = parseArgs(process.argv.slice(2));
     if (!args.task) {
       throw new Error(
-        "usage: check-path-policy.mjs --task <task.json> [--base <sha> --head <sha>] [--approval <file>] [paths...]"
+        "usage: check-path-policy.mjs --task <task.json> [--repo-root <absolute-path>] [--base <sha> --head <sha>] [--approval <file>] [paths...]"
       );
+    }
+    // `--repo-root` makes the diff surface explicit. Without it the historical,
+    // same-repository behaviour (process.cwd()) is kept exactly as it was.
+    let diffRoot = process.cwd();
+    if (args.repoRoot !== null) {
+      const resolved = resolveRepoRoot(args.repoRoot, "--repo-root");
+      if (!resolved.ok) {
+        throw new Error(resolved.reason);
+      }
+      diffRoot = resolved.root;
+      console.log(`PATH_POLICY_ROOT ${diffRoot}`);
     }
     const policy = readJson(`${CONTROL_PLANE_DIR}/policies/path-policy.json`);
     const task = readJson(args.task);
     const approvals = args.approvals.map((f) => readJson(f));
     let changes;
     if (args.base && args.head) {
-      changes = changedPathsFromGit(args.base, args.head);
+      changes = changedPathsFromGit(args.base, args.head, diffRoot);
     } else if (args.paths.length > 0) {
       changes = args.paths;
     } else {

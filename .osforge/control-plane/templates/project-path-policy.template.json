@@ -1,0 +1,83 @@
+{
+  "schema_version": "1.1.0",
+  "control_plane_version": "1.1.0",
+  "kind": "project-path-policy",
+  "project_id": "EXAMPLE-CONSUMER",
+  "description": "Consumer project path policy. Every canonical class below is carried unchanged from the canonical path policy and then EXTENDED with project-specific entries. Removing a canonical entry is rejected by check-path-policy.mjs.",
+  "allowed_paths": [
+    "apps/**",
+    "packages/**",
+    "docs/**",
+    ".osforge/**"
+  ],
+  "forbidden_paths": [
+    ".env",
+    ".env.*",
+    "**/.env",
+    "**/.env.*",
+    "**/node_modules/**",
+    "dist/**",
+    "build/**",
+    "coverage/**",
+    "**/*.pem",
+    "**/*.key",
+    "**/id_rsa*",
+    "**/id_ed25519*",
+    ".git/**"
+  ],
+  "protected_paths": [
+    ".github/workflows/**",
+    "CLAUDE.md",
+    "AGENTS.md",
+    "**/CLAUDE*.md",
+    "**/AGENTS*.md",
+    ".osforge/project.json",
+    ".osforge/control-plane.lock.json",
+    ".osforge/policies/**"
+  ],
+  "migration_paths": [
+    "**/prisma/migrations/**",
+    "**/migrations/**",
+    "**/migration/**",
+    "**/*.sql"
+  ],
+  "secret_paths": [
+    ".env",
+    ".env.*",
+    "**/.env",
+    "**/.env.*",
+    "**/secrets/**",
+    "**/*.pem",
+    "**/*.key",
+    "**/*.p12",
+    "**/*.pfx",
+    "**/id_rsa*",
+    "**/id_ed25519*",
+    "**/credentials*",
+    "**/*secret*.json",
+    "**/*secret*.txt",
+    "**/.npmrc",
+    "**/.netrc"
+  ],
+  "production_paths": [
+    "deploy/**",
+    "infra/**",
+    "terraform/**",
+    "helm/**",
+    "k8s/**",
+    ".github/workflows/*deploy*",
+    ".github/workflows/*release*"
+  ],
+  "generated_paths": [
+    "dist/**",
+    "build/**",
+    "coverage/**",
+    "**/node_modules/**",
+    "**/*.tsbuildinfo"
+  ],
+  "build_output_directories_note": "Segment-aware and recursive: any path with one of these directory names as a segment, at any depth and in any letter case, is generated output. Carry every canonical entry verbatim and ADD your own framework output directories (for example '.next' for Next.js or '.nuxt' for Nuxt); never remove one.",
+  "build_output_directories": ["dist", "build", "coverage", "node_modules"],
+  "user_owned_untracked_paths": [
+    "docs/design/**"
+  ]
+}

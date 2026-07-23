@@ -1,0 +1,32 @@
+{
+  "schema_version": "1.1.0",
+  "control_plane_version": "1.1.0",
+  "kind": "project",
+  "project_id": "EXAMPLE-CONSUMER",
+  "project_name": "Replace with the real consumer project name",
+  "repository": "example-owner/example-consumer",
+  "default_branch": "main",
+  "control_plane_repository": "avisabilisim-siborg/osforge-core",
+  "control_plane_commit": "0000000000000000000000000000000000000000",
+  "adoption_phase": "CP1-B",
+  "security_classification": "RESTRICTED",
+  "tenant_isolation_required": true,
+  "paid_ai_allowed": false,
+  "max_remediation_loops": 0,
+  "human_merge_approval_required": true,
+  "database_migration_approval_required": true,
+  "feature_flag_approval_required": true,
+  "secret_change_approval_required": true,
+  "deploy_approval_required": true,
+  "production_approval_required": true,
+  "project_policy_path": ".osforge/policies/project-path-policy.json",
+  "task_directory": ".osforge/tasks",
+  "audit_directory": ".osforge/audits",
+  "approval_directory": ".osforge/approvals",
+  "state_directory": ".osforge/state",
+  "user_owned_untracked_paths": [
+    "docs/design/**"
+  ],
+  "created_by": "human-operator",
+  "created_at": "2026-01-01T00:00:00.000Z"
+}

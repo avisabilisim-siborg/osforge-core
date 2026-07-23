@@ -24,9 +24,11 @@
     "docs/control-plane/SECURITY_MODEL.md",
     "docs/control-plane/THREAT_MODEL.md",
     "docs/control-plane/ADOPTION_GUIDE.md",
+    "docs/control-plane/CONSUMER_INTERFACE.md",
     "docs/control-plane/REPOSITORY_PREREQUISITES.md",
     "tests/control-plane-policy.test.mjs",
     "tests/control-plane-adversarial.test.mjs",
+    "tests/control-plane-consumer.test.mjs",
     "AGENTS.md",
     "CLAUDE.md"
   ],
@@ -76,7 +78,11 @@
       "scope": "all",
       "flags": "iu",
       "always_applies": true,
-      "negative_fixture_paths": ["tests/control-plane-policy.test.mjs", "tests/control-plane-adversarial.test.mjs"],
+      "negative_fixture_paths": [
+        "tests/control-plane-policy.test.mjs",
+        "tests/control-plane-adversarial.test.mjs",
+        "tests/control-plane-consumer.test.mjs"
+      ],
       "why": "paid_ai_allowed must never be true",
       "pattern": "paid_ai_allowed\"?\\s*[:=]\\s*(true|\"true\"|yes)\\b"
     },
