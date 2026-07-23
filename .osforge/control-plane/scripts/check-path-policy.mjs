@@ -13,6 +13,7 @@ import {
   normalizePath,
   matchesAny,
   matchesAnyInsensitive,
+  hasDirectorySegment,
   patternsConflict,
   runCli,
   CONTROL_PLANE_DIR
@@ -67,6 +68,16 @@ export function changedPathsFromGit(baseSha, headSha, cwd = process.cwd()) {
   return parseNameStatusZ(out.toString("utf8"));
 }
 
+/**
+ * True when the path lies inside a build output directory at ANY depth.
+ * `dist/**` only covers the repository root and `**​/dist/**` also swallows
+ * `mydist/`, so recursive build output is matched by segment, not by glob
+ * (audit finding M-1).
+ */
+export function isBuildOutput(path, policy) {
+  return hasDirectorySegment(path, policy.build_output_directories);
+}
+
 function classify(path, policy) {
   return {
     protected: matchesAnyInsensitive(path, policy.protected_paths),
@@ -75,7 +86,7 @@ function classify(path, policy) {
     secret: matchesAnyInsensitive(path, policy.secret_paths),
     migration: matchesAnyInsensitive(path, policy.migration_paths),
     production: matchesAnyInsensitive(path, policy.production_paths),
-    generated: matchesAnyInsensitive(path, policy.generated_paths)
+    generated: matchesAnyInsensitive(path, policy.generated_paths) || isBuildOutput(path, policy)
   };
 }
 
@@ -158,7 +169,8 @@ export const CONSUMER_MINIMUM_SOURCE = {
   generated_paths: "generated_paths",
   migration_paths: "migration_paths",
   production_paths: "production_paths",
-  protected_paths: "consumer_minimum_protected_paths"
+  protected_paths: "consumer_minimum_protected_paths",
+  build_output_directories: "build_output_directories"
 };
 
 /**
@@ -179,7 +191,8 @@ export function projectPolicyWeakenings(projectPolicy, canonicalPolicy) {
     for (const pattern of required) {
       if (!declared.has(pattern)) {
         findings.push(
-          `project-path-policy.${consumerClass} omits canonical ${canonicalClass} entry '${pattern}' (a consumer extends, never weakens)`
+          `project-path-policy.${consumerClass} omits canonical ${canonicalClass} entry '${pattern}': ` +
+            "copy the canonical entry verbatim (comparison is exact text, so an 'equivalent' spelling is not accepted); a consumer extends, never weakens"
         );
       }
     }
@@ -227,7 +240,7 @@ export function checkProjectPathPolicy(policy, changes, approvals = []) {
       errors.push(`secret path must never be staged: ${where}`);
       continue;
     }
-    if (matchesAnyInsensitive(path, policy.generated_paths)) {
+    if (matchesAnyInsensitive(path, policy.generated_paths) || isBuildOutput(path, policy)) {
       errors.push(`generated artefact must not be committed: ${where}`);
       continue;
     }

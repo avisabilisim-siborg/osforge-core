@@ -279,6 +279,12 @@ export function consumerWorkflowFindings(files, readFile, expected) {
       }
       controlPlaneCheckouts += 1;
       const ref = step.with.ref === undefined ? "" : String(step.with.ref);
+      if (/REPLACE_WITH/u.test(ref)) {
+        findings.push(
+          `${file} (${step.where}): control plane ref is still the template placeholder: replace it with the verified 40-character osforge-core merge commit sha`
+        );
+        continue;
+      }
       if (!FULL_COMMIT_SHA.test(ref)) {
         findings.push(
           `${file} (${step.where}): control plane ref '${ref}' is not a full 40-character commit sha (a branch, tag or 'latest' is never a valid pin)`

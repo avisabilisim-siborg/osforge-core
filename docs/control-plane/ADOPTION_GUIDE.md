@@ -29,11 +29,12 @@ enforces, fail-closed and without touching a single file:
   budget, and merge / migration / feature-flag / secret / deploy / production approval
   flags that cannot be switched off;
 - the exact control plane pin — full 40-character commit sha, matching lock and manifest,
-  matching checked-out `HEAD`, existing in that history, and an origin slug that rules out
-  a fork or a same-named repository;
+  matching checked-out `HEAD`, existing in that history, and an exact `{host, slug}` remote
+  identity that rules out a fork, a same-named repository and the same slug on another
+  forge;
 - external repository-root integrity, including symlink and traversal escape rejection;
 - the project path policy as a superset of the canonical classes, evaluated against the
-  real git diff;
+  real git diff, with build output matched by directory **segment** at any depth;
 - task / audit / approval / state manifests, judged by the canonical schemas;
 - human gates, the instruction boundary, the subscription-only scan and workflow
   permissions inside the consumer repository.
@@ -60,6 +61,31 @@ separate directories, the control plane at an exact commit, both with
 a write scope, a secret, an auto-merge, a deploy or a paid model API in that workflow is
 rejected by the canonical validator, so the pin cannot quietly rot.
 
+The shipped templates are deliberately **not adoptable unedited**: the CI template carries
+`REPLACE_WITH_VERIFIED_OSFORGE_CORE_MERGE_COMMIT_SHA` and the project manifest and version
+lock templates carry the all-zero object name. Each is rejected as a pin. After CP1-A.1 is
+merged, replace all three with the **verified full 40-character osforge-core merge commit
+sha** of the control plane version you adopted — never `main`, a branch, a tag, `latest`,
+an abbreviated sha, or a commit you have not verified yourself.
+
+## Exact-pattern rule, and why an "equivalent" glob is not accepted
+
+The superset check compares canonical class entries as **exact text**. `dist/**` and
+`./dist/**` and `dist/**/*` may look interchangeable, but proving two globs equivalent is
+not something a small deterministic matcher can do, and a matcher that guesses is a matcher
+that can be argued into a bypass. So: copy each canonical entry verbatim, then add your
+own on top. The finding names the exact entry that is missing.
+
+Paths are canonicalised before any comparison — `\` becomes `/`, Unicode is NFC-normalised,
+`.` segments are dropped, and absolute or `..`-relative patterns are rejected outright.
+Write every pattern once, repository-relative, with forward slashes.
+
+Build output is the one class that is **not** glob-matched. `dist/**` covers only the
+repository root and `**/dist/**` also swallows `mydist/`, so `build_output_directories`
+matches whole path segments at any depth, case-insensitively: `packages/x/dist/a.js` is
+rejected, `mydist/a.js` and `distribution/a.js` are not. Add your framework's output
+directory (for example `.next`) to that list; never remove a canonical entry.
+
 ## Separate human operations
 
 Repository rulesets, branch protection, required status checks, bypass actors and linear
@@ -84,7 +110,7 @@ agree on that list; a mismatch is a finding.
 
 1. Canonical constitution reference is present and resolvable.
 2. Project manifest exists and validates, with the exact control plane repository and a
-   full 40-character commit pin.
+   verified full 40-character commit pin — no placeholder, branch, tag or `latest`.
 3. Version lock exists, validates and does not drift from the manifest.
 4. Project path policy extends, and does not weaken, the canonical classes.
 5. Protected paths include the repository security documents, the workflows and the

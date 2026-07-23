@@ -52,19 +52,120 @@ export const PROJECT_DIRECTORY_KINDS = {
 /** Marker that identifies a workflow as the consumer control plane CI adapter. */
 export const ADAPTER_MARKER = "validate-consumer-project.mjs";
 
-/** owner/repo slug of a git remote, or null when it cannot be determined exactly. */
-export function remoteSlug(root, remote = "origin") {
-  let url;
+/**
+ * The all-zero object name the shipped templates carry. It is schema-valid so the
+ * templates stay machine-checkable, and it is rejected the moment a real consumer
+ * is validated, so a template can never be adopted unedited.
+ */
+export const PLACEHOLDER_COMMIT = "0".repeat(40);
+
+/**
+ * Git hosts this contract accepts. The interface is deliberately GitHub-only for
+ * CP1-A.1: `owner/repo` alone is NOT an identity, because the same slug exists on
+ * every forge on the internet. Supporting another forge is a separate, reviewed
+ * change, not a configuration switch.
+ */
+export const SUPPORTED_REMOTE_HOSTS = ["github.com"];
+
+/**
+ * Parses a git remote URL into an exact `{host, slug}` identity.
+ *
+ * Accepted transports: `https` and `ssh`, in either the scheme form
+ * (`<scheme>://<host>/<owner>/<repo>[.git]`) or the SCP form
+ * (`git@<host>:<owner>/<repo>[.git]`). The host must be in the supported list.
+ * Rejected: any other host, a lookalike host, a plaintext transport, and — most
+ * importantly — a URL carrying embedded credentials.
+ *
+ * The URL is NEVER placed in a return value or a message. A remote can contain a
+ * token, and a validator that echoes it turns an audit log into a secret leak.
+ */
+export function parseRemoteIdentity(url) {
+  if (typeof url !== "string" || url.trim() === "") {
+    return { ok: false, reason: "remote URL is empty" };
+  }
+  const raw = url.trim();
+  if (raw.includes("@") && !/^(?:ssh:\/\/)?git@/u.test(raw)) {
+    // `user:token@host` and any other embedded userinfo. Redacted on purpose.
+    return { ok: false, reason: "remote URL carries embedded credentials (value redacted)" };
+  }
+
+  let host;
+  let path;
+  const scp = /^git@([A-Za-z0-9.-]+):(.+)$/u.exec(raw);
+  if (scp) {
+    host = scp[1];
+    path = scp[2];
+  } else {
+    const scheme = /^([A-Za-z][A-Za-z0-9+.-]*):\/\/([^/]+)\/(.+)$/u.exec(raw);
+    if (!scheme) {
+      return { ok: false, reason: "remote URL is not a recognised git URL (value redacted)" };
+    }
+    const protocol = scheme[1].toLowerCase();
+    if (protocol !== "https" && protocol !== "ssh") {
+      return { ok: false, reason: `remote URL uses the unsupported transport '${protocol}'` };
+    }
+    host = scheme[2].replace(/^git@/u, "");
+    path = scheme[3];
+  }
+
+  host = host.replace(/:\d+$/u, "").toLowerCase();
+  if (!SUPPORTED_REMOTE_HOSTS.includes(host)) {
+    return { ok: false, reason: `remote host '${host}' is not a supported control plane host` };
+  }
+  const slugMatch = /^([A-Za-z0-9._-]+)\/([A-Za-z0-9._-]+?)(?:\.git)?\/?$/u.exec(path);
+  if (!slugMatch) {
+    return { ok: false, reason: `remote path on '${host}' is not an exact owner/repo slug` };
+  }
+  return { ok: true, host, slug: `${slugMatch[1]}/${slugMatch[2]}` };
+}
+
+/**
+ * Resolves the identity of a checked-out repository from its git remotes.
+ *
+ * Every configured remote must resolve to the SAME `{host, slug}`. A second
+ * remote pointing somewhere else makes the repository's identity ambiguous, and
+ * an ambiguous identity is fail-closed rather than "probably origin".
+ */
+export function remoteIdentity(root) {
+  let names;
   try {
-    url = execFileSync("git", ["-C", root, "remote", "get-url", remote], {
+    names = execFileSync("git", ["-C", root, "remote"], {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "pipe"]
-    }).trim();
+    })
+      .split(/\r?\n/u)
+      .map((n) => n.trim())
+      .filter((n) => n !== "");
   } catch {
-    return null;
+    return { ok: false, reason: "git remotes could not be listed" };
   }
-  const match = /([A-Za-z0-9._-]+)\/([A-Za-z0-9._-]+?)(?:\.git)?$/u.exec(url);
-  return match ? `${match[1]}/${match[2]}` : null;
+  if (!names.includes("origin")) {
+    return { ok: false, reason: "the checkout has no 'origin' remote: its identity cannot be proven" };
+  }
+  const identities = new Map();
+  for (const name of names) {
+    let url;
+    try {
+      url = execFileSync("git", ["-C", root, "remote", "get-url", name], {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"]
+      }).trim();
+    } catch {
+      return { ok: false, reason: `remote '${name}' has no readable URL` };
+    }
+    const parsed = parseRemoteIdentity(url);
+    if (!parsed.ok) {
+      return { ok: false, reason: `remote '${name}': ${parsed.reason}` };
+    }
+    identities.set(`${parsed.host}/${parsed.slug}`, parsed);
+  }
+  if (identities.size !== 1) {
+    return {
+      ok: false,
+      reason: `the checkout declares ${identities.size} different repository identities across its remotes: ambiguous identity is rejected`
+    };
+  }
+  return [...identities.values()][0];
 }
 
 /**
@@ -76,8 +177,19 @@ export function remoteSlug(root, remote = "origin") {
  * reviewed. "Close enough" is a supply-chain compromise waiting to happen.
  */
 export function verifyVersionLock(lock, project, context) {
-  const { coreRoot, coreVersion, coreHead, coreSlug } = context;
+  const { coreRoot, coreVersion, coreHead, coreIdentity } = context;
   const errors = [];
+
+  if (lock.control_plane_commit === PLACEHOLDER_COMMIT) {
+    errors.push(
+      "version lock still carries the template placeholder commit: replace it with the verified 40-character osforge-core merge commit sha"
+    );
+  }
+  if (project.control_plane_commit === PLACEHOLDER_COMMIT) {
+    errors.push(
+      "project manifest still carries the template placeholder commit: replace it with the verified 40-character osforge-core merge commit sha"
+    );
+  }
 
   if (lock.control_plane_repository !== project.control_plane_repository) {
     errors.push(
@@ -96,11 +208,13 @@ export function verifyVersionLock(lock, project, context) {
     );
   }
 
-  if (coreSlug === null) {
-    errors.push("the osforge-core checkout has no resolvable origin remote: its identity cannot be proven");
-  } else if (coreSlug !== lock.control_plane_repository) {
+  if (!coreIdentity || coreIdentity.ok !== true) {
     errors.push(
-      `the checked-out control plane is '${coreSlug}', not the pinned '${lock.control_plane_repository}' (a fork or a same-named repository is a different repository)`
+      `the osforge-core checkout identity could not be proven: ${coreIdentity ? coreIdentity.reason : "no identity supplied"}`
+    );
+  } else if (coreIdentity.slug !== lock.control_plane_repository) {
+    errors.push(
+      `the checked-out control plane is '${coreIdentity.slug}' on '${coreIdentity.host}', not the pinned '${lock.control_plane_repository}' (a fork or a same-named repository is a different repository)`
     );
   }
 
@@ -217,7 +331,7 @@ export function validateConsumerProject(options = {}) {
           coreRoot,
           coreVersion,
           coreHead: headCommit(coreRoot),
-          coreSlug: remoteSlug(coreRoot)
+          coreIdentity: remoteIdentity(coreRoot)
         })
       );
     }

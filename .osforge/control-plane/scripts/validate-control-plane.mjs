@@ -51,6 +51,7 @@ const ENFORCED_POLICY_KEYS = {
     "migration_paths",
     "production_paths",
     "generated_paths",
+    "build_output_directories",
     "consumer_minimum_protected_paths"
   ],
   "workflow-policy": [
@@ -152,6 +153,16 @@ export function controlPlaneFindings() {
   const pathPolicy = existsSync(pathPolicyFile) ? readJson(pathPolicyFile) : {};
   if ((pathPolicy.consumer_minimum_protected_paths ?? []).length === 0) {
     findings.push("path policy must declare consumer_minimum_protected_paths for the consumer interface");
+  }
+  // Segment-aware build output (audit finding M-1) is data too: an empty inventory
+  // would silently reopen the nested `dist/` bypass.
+  if ((pathPolicy.build_output_directories ?? []).length === 0) {
+    findings.push("path policy must declare build_output_directories for recursive build output");
+  }
+  for (const name of pathPolicy.build_output_directories ?? []) {
+    if (typeof name !== "string" || name.includes("/") || name.includes("\\") || name === "." || name === "..") {
+      findings.push(`build_output_directories entry ${JSON.stringify(name)} must be a single directory name`);
+    }
   }
   return findings;
 }

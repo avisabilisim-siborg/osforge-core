@@ -292,6 +292,11 @@ export function commitPinErrors(field, value) {
   if (FULL_COMMIT_SHA.test(value)) {
     return [];
   }
+  if (/REPLACE_WITH/u.test(value)) {
+    return [
+      `${field} is still the template placeholder: replace it with the verified 40-character osforge-core merge commit sha`
+    ];
+  }
   if (/^[0-9a-f]{4,39}$/u.test(value)) {
     return [`${field} is an abbreviated sha; only a full 40-character commit sha is a valid pin`];
   }
@@ -395,6 +400,13 @@ export function validateProjectPathPolicyRules(policy) {
     "allowed_paths", "forbidden_paths", "protected_paths", "migration_paths",
     "secret_paths", "production_paths", "generated_paths", "user_owned_untracked_paths"
   ];
+  for (const name of policy.build_output_directories ?? []) {
+    if (typeof name !== "string" || name.includes("/") || name === "." || name === "..") {
+      errors.push(
+        `project-path-policy.build_output_directories entry ${JSON.stringify(name)} must be a single directory name, not a path or a glob`
+      );
+    }
+  }
   for (const name of classes) {
     for (const pattern of policy[name] ?? []) {
       const reason = patternPathError(pattern);

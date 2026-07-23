@@ -7,7 +7,7 @@
   "repository": "example-owner/example-consumer",
   "default_branch": "main",
   "control_plane_repository": "avisabilisim-siborg/osforge-core",
-  "control_plane_commit": "72c1c66bd69471b542fe1483a8e044741c5ac101",
+  "control_plane_commit": "0000000000000000000000000000000000000000",
   "adoption_phase": "CP1-B",
   "security_classification": "RESTRICTED",
   "tenant_isolation_required": true,

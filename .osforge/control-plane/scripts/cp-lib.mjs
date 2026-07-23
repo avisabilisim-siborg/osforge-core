@@ -153,6 +153,39 @@ export function matchesAnyInsensitive(path, patterns) {
 }
 
 /**
+ * Segment-aware directory membership (audit finding M-1).
+ *
+ * A glob such as `dist/**` only covers the repository root, and `**​/dist/**` is
+ * NOT segment-aware in this matcher: `**` expands to `(?:[^/]+/)*[^/]*`, so it
+ * also swallows `mydist/`. Build output must be recognised by whole path
+ * SEGMENT, at any depth, which is what this helper does — and only this helper.
+ * The glob semantics of every other class stay exactly as they were.
+ *
+ * Only directory segments are considered: a FILE named `dist` is not build
+ * output. Comparison is case-insensitive on every platform, deliberately, so a
+ * case-insensitive filesystem cannot present `Dist/` as a different directory.
+ *
+ * `path` must already be canonicalised by `normalizePath`.
+ */
+export function hasDirectorySegment(path, directories) {
+  if (typeof path !== "string" || path === "") {
+    return false;
+  }
+  const names = new Set((directories ?? []).map((d) => String(d).toLowerCase()));
+  if (names.size === 0) {
+    return false;
+  }
+  const segments = path.split("/");
+  // The final segment is the changed file itself, never a directory.
+  for (let i = 0; i < segments.length - 1; i += 1) {
+    if (names.has(segments[i].toLowerCase())) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
  * Conflict detection between the allowed and the forbidden pattern set.
  *
  * A narrow forbidden pattern nested inside a broad allowed pattern is a

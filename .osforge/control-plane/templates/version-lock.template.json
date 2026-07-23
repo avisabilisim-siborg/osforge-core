@@ -3,7 +3,7 @@
   "control_plane_version": "1.1.0",
   "kind": "version-lock",
   "control_plane_repository": "avisabilisim-siborg/osforge-core",
-  "control_plane_commit": "72c1c66bd69471b542fe1483a8e044741c5ac101",
+  "control_plane_commit": "0000000000000000000000000000000000000000",
   "compatibility_version": "1",
   "created_by": "human-operator",
   "created_at": "2026-01-01T00:00:00.000Z"

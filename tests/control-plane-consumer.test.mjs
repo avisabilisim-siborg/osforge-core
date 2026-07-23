@@ -7,12 +7,23 @@
 // Negative fixtures intentionally contain the forbidden vocabulary so the scanners can be
 // proven to reject it; this file is listed as a declaration surface and as a negative
 // fixture path in cost-policy.json.
-import test from "node:test";
+import test, { after } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  cpSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, isAbsolute, join, relative, resolve } from "node:path";
 
 import {
   validateManifest,
@@ -23,6 +34,7 @@ import {
   patternPathError
 } from "../.osforge/control-plane/scripts/validate-manifest.mjs";
 import {
+  checkPathPolicy,
   checkProjectPathPolicy,
   projectPolicyWeakenings
 } from "../.osforge/control-plane/scripts/check-path-policy.mjs";
@@ -40,8 +52,11 @@ import { paidAiFindings } from "../.osforge/control-plane/scripts/check-no-paid-
 import {
   validateConsumerProject,
   verifyVersionLock,
-  remoteSlug
+  remoteIdentity,
+  parseRemoteIdentity,
+  PLACEHOLDER_COMMIT
 } from "../.osforge/control-plane/scripts/validate-consumer-project.mjs";
+import { globToRegExp, hasDirectorySegment } from "../.osforge/control-plane/scripts/cp-lib.mjs";
 
 const CP = ".osforge/control-plane";
 const readJson = (p) => JSON.parse(readFileSync(p, "utf8"));
@@ -54,7 +69,59 @@ const workflowPolicy = () => readJson(`${CP}/policies/workflow-policy.json`);
 const instructionPolicy = () => readJson(`${CP}/policies/instruction-policy.json`);
 
 const SHA_A = "a".repeat(40);
+const PIN = "b".repeat(40);
 const CORE_SLUG = "avisabilisim-siborg/osforge-core";
+const CORE_HOST = "github.com";
+const FIXTURE_PREFIX = "osforge-";
+
+/** A project manifest carrying a real-looking pin instead of the template placeholder. */
+const pinnedProject = (overrides = {}) => ({ ...baseProject(), control_plane_commit: PIN, ...overrides });
+const pinnedLock = (overrides = {}) => ({ ...baseLock(), control_plane_commit: PIN, ...overrides });
+const identity = (slug = CORE_SLUG, host = CORE_HOST) => ({ ok: true, host, slug });
+
+// --- temporary fixture lifecycle (audit finding m-2) -----------------------
+
+/**
+ * Every temporary directory this suite creates, so `after` can remove all of them
+ * even when a test throws. Cleanup is deliberately paranoid: it refuses to delete
+ * anything that is not a real directory directly under the system temp root and
+ * named with this suite's prefix, and it never follows a symlink.
+ */
+const FIXTURE_ROOTS = [];
+
+function tempDir(prefix) {
+  const dir = mkdtempSync(join(realpathSync.native(tmpdir()), `${FIXTURE_PREFIX}${prefix}`));
+  FIXTURE_ROOTS.push(dir);
+  return dir;
+}
+
+export function removeFixtureRoot(dir, tempRoot) {
+  const root = realpathSync.native(tempRoot);
+  const target = resolve(dir);
+  const rel = relative(root, target);
+  if (rel === "" || rel === ".." || rel.startsWith("..") || isAbsolute(rel)) {
+    throw new Error(`refusing to remove a path outside the temp root: ${target}`);
+  }
+  if (rel.includes("/") || rel.includes("\\")) {
+    throw new Error(`refusing to remove a nested path: only a fixture root may be removed (${rel})`);
+  }
+  if (!basename(target).startsWith(FIXTURE_PREFIX)) {
+    throw new Error(`refusing to remove a directory that is not a fixture root: ${target}`);
+  }
+  if (!existsSync(target)) {
+    return;
+  }
+  if (lstatSync(target).isSymbolicLink()) {
+    throw new Error(`refusing to follow a symlink during cleanup: ${target}`);
+  }
+  rmSync(target, { recursive: true, force: true });
+}
+
+after(() => {
+  for (const dir of FIXTURE_ROOTS) {
+    removeFixtureRoot(dir, tmpdir());
+  }
+});
 
 // --- project manifest ------------------------------------------------------
 
@@ -194,78 +261,182 @@ test("a short sha in the version lock is rejected", () => {
 });
 
 test("a version lock that names another repository than the project is drift", () => {
-  const project = baseProject();
-  const lock = { ...baseLock(), control_plane_repository: "attacker/osforge-core" };
-  const errors = verifyVersionLock(lock, project, {
+  const lock = pinnedLock({ control_plane_repository: "attacker/osforge-core" });
+  const errors = verifyVersionLock(lock, pinnedProject(), {
     coreRoot: ".",
     coreVersion: "1.1.0",
-    coreHead: lock.control_plane_commit,
-    coreSlug: "attacker/osforge-core"
+    coreHead: PIN,
+    coreIdentity: identity("attacker/osforge-core")
   });
   assert.ok(errors.some((e) => e.includes("drift")));
 });
 
 test("a version lock that pins another commit than the project is drift", () => {
-  const project = baseProject();
-  const lock = { ...baseLock(), control_plane_commit: SHA_A };
-  const errors = verifyVersionLock(lock, project, {
+  const errors = verifyVersionLock(pinnedLock({ control_plane_commit: SHA_A }), pinnedProject(), {
     coreRoot: ".",
     coreVersion: "1.1.0",
     coreHead: SHA_A,
-    coreSlug: CORE_SLUG
+    coreIdentity: identity()
   });
   assert.ok(errors.some((e) => e.includes("different control plane commits")));
 });
 
 test("a checkout at another head than the pin is rejected", () => {
-  const project = baseProject();
-  const errors = verifyVersionLock(baseLock(), project, {
+  const errors = verifyVersionLock(pinnedLock(), pinnedProject(), {
     coreRoot: ".",
     coreVersion: "1.1.0",
     coreHead: SHA_A,
-    coreSlug: CORE_SLUG
+    coreIdentity: identity()
   });
   assert.ok(errors.some((e) => e.includes("not at the pinned commit")));
 });
 
 test("a fork or same-named repository is rejected as the control plane", () => {
-  const project = baseProject();
-  const errors = verifyVersionLock(baseLock(), project, {
+  const errors = verifyVersionLock(pinnedLock(), pinnedProject(), {
     coreRoot: ".",
     coreVersion: "1.1.0",
-    coreHead: baseLock().control_plane_commit,
-    coreSlug: "attacker/osforge-core"
+    coreHead: PIN,
+    coreIdentity: identity("attacker/osforge-core")
   });
   assert.ok(errors.some((e) => e.includes("different repository")));
 });
 
-test("an unresolvable control plane origin is fail-closed", () => {
-  const project = baseProject();
-  const errors = verifyVersionLock(baseLock(), project, {
+test("an unprovable control plane identity is fail-closed", () => {
+  const errors = verifyVersionLock(pinnedLock(), pinnedProject(), {
     coreRoot: ".",
     coreVersion: "1.1.0",
-    coreHead: baseLock().control_plane_commit,
-    coreSlug: null
+    coreHead: PIN,
+    coreIdentity: { ok: false, reason: "the checkout has no 'origin' remote" }
   });
-  assert.ok(errors.some((e) => e.includes("origin remote")));
+  assert.ok(errors.some((e) => e.includes("identity could not be proven")));
 });
 
 test("an incompatible major version is rejected", () => {
-  const project = baseProject();
-  const errors = verifyVersionLock(baseLock(), project, {
+  const errors = verifyVersionLock(pinnedLock(), pinnedProject(), {
     coreRoot: ".",
     coreVersion: "2.0.0",
-    coreHead: baseLock().control_plane_commit,
-    coreSlug: CORE_SLUG
+    coreHead: PIN,
+    coreIdentity: identity()
   });
   assert.ok(errors.some((e) => e.includes("compatibility_version")));
 });
 
-// --- external repository root ----------------------------------------------
+test("the template placeholder commit is never accepted as a real pin", () => {
+  const errors = verifyVersionLock(baseLock(), baseProject(), {
+    coreRoot: ".",
+    coreVersion: "1.1.0",
+    coreHead: PLACEHOLDER_COMMIT,
+    coreIdentity: identity()
+  });
+  assert.equal(baseLock().control_plane_commit, PLACEHOLDER_COMMIT);
+  assert.ok(errors.some((e) => e.includes("version lock still carries the template placeholder")));
+  assert.ok(errors.some((e) => e.includes("project manifest still carries the template placeholder")));
+});
 
-function tempDir(prefix) {
-  return mkdtempSync(join(tmpdir(), prefix));
-}
+test("the shipped templates carry no stale real control plane commit", () => {
+  const stale = "72c1c66bd69471b542fe1483a8e044741c5ac101";
+  for (const file of [
+    `${CP}/templates/project.template.json`,
+    `${CP}/templates/version-lock.template.json`,
+    `${CP}/templates/consumer-ci.template.yml`,
+    "docs/control-plane/ADOPTION_GUIDE.md",
+    "docs/control-plane/CONSUMER_INTERFACE.md"
+  ]) {
+    assert.equal(readFileSync(file, "utf8").includes(stale), false, `${file} still pins a stale commit`);
+  }
+});
+
+// --- remote repository identity (audit finding m-1) ------------------------
+
+test("a github.com HTTPS remote is accepted", () => {
+  const parsed = parseRemoteIdentity(`https://${CORE_HOST}/${CORE_SLUG}.git`);
+  assert.deepEqual(parsed, { ok: true, host: CORE_HOST, slug: CORE_SLUG });
+});
+
+test("a github.com SSH remote is accepted and normalised identically", () => {
+  const scp = parseRemoteIdentity(`git@${CORE_HOST}:${CORE_SLUG}.git`);
+  const ssh = parseRemoteIdentity(`ssh://git@${CORE_HOST}/${CORE_SLUG}`);
+  assert.deepEqual(scp, { ok: true, host: CORE_HOST, slug: CORE_SLUG });
+  assert.deepEqual(ssh, { ok: true, host: CORE_HOST, slug: CORE_SLUG });
+});
+
+test("a trailing .git suffix is normalised away", () => {
+  const withSuffix = parseRemoteIdentity(`https://${CORE_HOST}/${CORE_SLUG}.git`);
+  const without = parseRemoteIdentity(`https://${CORE_HOST}/${CORE_SLUG}`);
+  assert.deepEqual(withSuffix, without);
+});
+
+test("the same owner/repo slug on another host is rejected", () => {
+  const parsed = parseRemoteIdentity(`https://gitlab.com/${CORE_SLUG}.git`);
+  assert.equal(parsed.ok, false);
+  assert.ok(parsed.reason.includes("gitlab.com"));
+});
+
+test("a lookalike host is rejected", () => {
+  for (const host of ["github.com.evil.example", "githubb.com", "raw.github.com.attacker.test"]) {
+    const parsed = parseRemoteIdentity(`https://${host}/${CORE_SLUG}.git`);
+    assert.equal(parsed.ok, false, `${host} must not be accepted`);
+    assert.ok(parsed.reason.includes("not a supported control plane host"));
+  }
+});
+
+test("a plaintext transport is rejected", () => {
+  const parsed = parseRemoteIdentity(`http://${CORE_HOST}/${CORE_SLUG}.git`);
+  assert.equal(parsed.ok, false);
+  assert.ok(parsed.reason.includes("unsupported transport"));
+});
+
+test("a remote URL carrying credentials is rejected and never echoed", () => {
+  const token = `ghp_${"a".repeat(36)}`;
+  const parsed = parseRemoteIdentity(`https://user:${token}@${CORE_HOST}/${CORE_SLUG}.git`);
+  assert.equal(parsed.ok, false);
+  assert.ok(parsed.reason.includes("redacted"));
+  assert.equal(parsed.reason.includes(token), false);
+  assert.equal(parsed.reason.includes("user"), false);
+});
+
+test("a missing origin remote is fail-closed", () => {
+  const dir = initRepo(tempDir("no-origin-"));
+  writeFileSync(join(dir, "README.md"), "fixture\n");
+  commitAll(dir, "fixture");
+  const result = remoteIdentity(dir);
+  assert.equal(result.ok, false);
+  assert.ok(result.reason.includes("no 'origin' remote"));
+});
+
+test("two remotes pointing at different repositories are ambiguous and rejected", () => {
+  const dir = initRepo(tempDir("two-remotes-"));
+  writeFileSync(join(dir, "README.md"), "fixture\n");
+  commitAll(dir, "fixture");
+  execFileSync("git", ["remote", "add", "origin", `https://${CORE_HOST}/${CORE_SLUG}.git`], { cwd: dir });
+  execFileSync("git", ["remote", "add", "mirror", `https://${CORE_HOST}/attacker/osforge-core.git`], { cwd: dir });
+  const result = remoteIdentity(dir);
+  assert.equal(result.ok, false);
+  assert.ok(result.reason.includes("ambiguous identity"));
+});
+
+test("a second remote naming the same repository stays unambiguous", () => {
+  const dir = initRepo(tempDir("same-remotes-"));
+  writeFileSync(join(dir, "README.md"), "fixture\n");
+  commitAll(dir, "fixture");
+  execFileSync("git", ["remote", "add", "origin", `https://${CORE_HOST}/${CORE_SLUG}.git`], { cwd: dir });
+  execFileSync("git", ["remote", "add", "ssh", `git@${CORE_HOST}:${CORE_SLUG}.git`], { cwd: dir });
+  assert.deepEqual(remoteIdentity(dir), { ok: true, host: CORE_HOST, slug: CORE_SLUG });
+});
+
+test("a wrong owner and a wrong repository are both rejected against the pin", () => {
+  for (const slug of ["attacker/osforge-core", `${CORE_SLUG.split("/")[0]}/osforge-kernel`]) {
+    const errors = verifyVersionLock(pinnedLock(), pinnedProject(), {
+      coreRoot: ".",
+      coreVersion: "1.1.0",
+      coreHead: PIN,
+      coreIdentity: identity(slug)
+    });
+    assert.ok(errors.some((e) => e.includes("different repository")), `${slug} must be rejected`);
+  }
+});
+
+// --- external repository root ----------------------------------------------
 
 function initRepo(dir) {
   execFileSync("git", ["init", "-q", "-b", "main"], { cwd: dir, stdio: ["ignore", "pipe", "pipe"] });
@@ -311,14 +482,14 @@ test("a repository root that does not exist is rejected", () => {
 });
 
 test("a directory that is not a git repository is rejected", () => {
-  const dir = tempDir("osforge-plain-");
+  const dir = tempDir("plain-");
   const result = resolveRepoRoot(dir);
   assert.equal(result.ok, false);
   assert.ok(result.reason.includes("not a git repository"));
 });
 
 test("a subdirectory of a repository is not accepted as its root", () => {
-  const dir = initRepo(tempDir("osforge-sub-"));
+  const dir = initRepo(tempDir("sub-"));
   writeFileSync(join(dir, "README.md"), "fixture\n");
   mkdirSync(join(dir, "packages"), { recursive: true });
   writeFileSync(join(dir, "packages", "a.txt"), "a\n");
@@ -329,14 +500,14 @@ test("a subdirectory of a repository is not accepted as its root", () => {
 });
 
 test("a real repository root is accepted", () => {
-  const dir = initRepo(tempDir("osforge-root-"));
+  const dir = initRepo(tempDir("root-"));
   writeFileSync(join(dir, "README.md"), "fixture\n");
   commitAll(dir, "fixture");
   assert.equal(resolveRepoRoot(dir).ok, true);
 });
 
 test("a traversing relative path is rejected inside a resolved root", () => {
-  const dir = initRepo(tempDir("osforge-traverse-"));
+  const dir = initRepo(tempDir("traverse-"));
   writeFileSync(join(dir, "README.md"), "fixture\n");
   commitAll(dir, "fixture");
   const root = resolveRepoRoot(dir).root;
@@ -346,7 +517,7 @@ test("a traversing relative path is rejected inside a resolved root", () => {
 });
 
 test("an absolute path is rejected as a repository-relative path", () => {
-  const dir = initRepo(tempDir("osforge-abs-"));
+  const dir = initRepo(tempDir("abs-"));
   writeFileSync(join(dir, "README.md"), "fixture\n");
   commitAll(dir, "fixture");
   const root = resolveRepoRoot(dir).root;
@@ -356,7 +527,7 @@ test("an absolute path is rejected as a repository-relative path", () => {
 });
 
 test("a mixed Windows separator path is canonicalised, never split apart", () => {
-  const dir = initRepo(tempDir("osforge-sep-"));
+  const dir = initRepo(tempDir("sep-"));
   mkdirSync(join(dir, ".osforge"), { recursive: true });
   writeFileSync(join(dir, ".osforge", "project.json"), "{}\n");
   commitAll(dir, "fixture");
@@ -367,9 +538,9 @@ test("a mixed Windows separator path is canonicalised, never split apart", () =>
 });
 
 test("a symlink pointing outside the repository is rejected", () => {
-  const outside = tempDir("osforge-outside-");
+  const outside = tempDir("outside-");
   writeFileSync(join(outside, "stolen.json"), "{}\n");
-  const dir = initRepo(tempDir("osforge-symlink-"));
+  const dir = initRepo(tempDir("symlink-"));
   writeFileSync(join(dir, "README.md"), "fixture\n");
   let made = true;
   try {
@@ -390,7 +561,7 @@ test("a symlink pointing outside the repository is rejected", () => {
 });
 
 test("a commit that does not exist is not accepted as a pin", () => {
-  const dir = initRepo(tempDir("osforge-commit-"));
+  const dir = initRepo(tempDir("commit-"));
   writeFileSync(join(dir, "README.md"), "fixture\n");
   const head = commitAll(dir, "fixture");
   assert.equal(commitExists(dir, head), true);
@@ -521,6 +692,154 @@ test("a path escaping the consumer repository is rejected before any class is co
   const policy = { ...basePolicy(), allowed_paths: ["**"] };
   assert.ok(
     checkProjectPathPolicy(policy, ["../other-repo/app.ts"]).some((e) => e.includes("unsafe path rejected"))
+  );
+});
+
+// --- nested build output (audit finding M-1) -------------------------------
+
+const anyAllowed = (overrides = {}) => ({ ...basePolicy(), allowed_paths: ["**"], ...overrides });
+
+test("the glob matcher is proven NOT to be segment-aware, which is why segments are used", () => {
+  // Recorded on purpose: `dist/**` misses every nested directory, and `**/dist/**`
+  // over-matches `mydist/`. Neither is a safe recursive build-output rule, so the
+  // build-output class is matched by segment instead of by glob.
+  assert.equal(globToRegExp("dist/**", "iu").test("packages/x/dist/a.js"), false);
+  assert.equal(globToRegExp("**/dist/**", "iu").test("mydist/a.js"), true);
+});
+
+test("root build output is rejected", () => {
+  const errors = checkProjectPathPolicy(anyAllowed(), ["dist/a.js"]);
+  assert.ok(errors.some((e) => e.includes("forbidden") || e.includes("generated")));
+});
+
+test("nested build output under packages is rejected", () => {
+  const errors = checkProjectPathPolicy(anyAllowed(), ["packages/x/dist/a.js"]);
+  assert.ok(errors.some((e) => e.includes("generated artefact must not be committed")));
+});
+
+test("nested build output under apps is rejected", () => {
+  const errors = checkProjectPathPolicy(anyAllowed(), ["apps/web/dist/a.js"]);
+  assert.ok(errors.some((e) => e.includes("generated artefact must not be committed")));
+});
+
+test("every canonical build output directory is rejected at any depth", () => {
+  for (const dir of canonicalPathPolicy().build_output_directories) {
+    const path = `services/api/${dir}/a.js`;
+    assert.ok(
+      checkProjectPathPolicy(anyAllowed(), [path]).length > 0,
+      `${path} must not be committable`
+    );
+  }
+});
+
+test("a Windows separator cannot smuggle nested build output past the policy", () => {
+  const errors = checkProjectPathPolicy(anyAllowed(), ["packages\\x\\dist\\a.js"]);
+  assert.ok(errors.some((e) => e.includes("generated artefact must not be committed")));
+});
+
+test("a mixed separator path is canonicalised before the class is decided", () => {
+  const errors = checkProjectPathPolicy(anyAllowed(), ["packages/x\\dist/./a.js"]);
+  assert.ok(errors.some((e) => e.includes("generated artefact must not be committed")));
+});
+
+test("a rename INTO nested build output is rejected", () => {
+  const errors = checkProjectPathPolicy(anyAllowed(), [
+    { status: "R", path: "packages/x/src/a.js", origin: "rename-source" },
+    { status: "R", path: "packages/x/dist/a.js", origin: "rename-target" }
+  ]);
+  assert.ok(errors.some((e) => e.includes("rename-target")));
+});
+
+test("a rename OUT of nested build output still evaluates the old path", () => {
+  const errors = checkProjectPathPolicy(anyAllowed(), [
+    { status: "R", path: "packages/x/dist/a.js", origin: "rename-source" },
+    { status: "R", path: "packages/x/src/a.js", origin: "rename-target" }
+  ]);
+  assert.ok(errors.some((e) => e.includes("rename-source")));
+});
+
+test("a deleted nested build output path is evaluated like a modification", () => {
+  const errors = checkProjectPathPolicy(anyAllowed(), [
+    { status: "D", path: "apps/web/dist/a.js", origin: "change" }
+  ]);
+  assert.ok(errors.some((e) => e.includes("generated artefact must not be committed")));
+});
+
+test("a symlink path into nested build output is rejected like any other path", () => {
+  const errors = checkProjectPathPolicy(anyAllowed(), ["packages/x/dist/link.js"]);
+  assert.ok(errors.some((e) => e.includes("generated artefact must not be committed")));
+  // A symlink that escapes the repository never reaches the class check at all.
+  assert.ok(
+    checkProjectPathPolicy(anyAllowed(), ["../outside/dist/a.js"]).some((e) =>
+      e.includes("unsafe path rejected")
+    )
+  );
+});
+
+test("'mydist' is not a build output segment", () => {
+  assert.deepEqual(checkProjectPathPolicy(anyAllowed(), ["mydist/a.js"]), []);
+  assert.deepEqual(checkProjectPathPolicy(anyAllowed(), ["packages/x/mydist/a.js"]), []);
+});
+
+test("'distribution' is not a build output segment", () => {
+  assert.deepEqual(checkProjectPathPolicy(anyAllowed(), ["distribution/a.js"]), []);
+  assert.deepEqual(checkProjectPathPolicy(anyAllowed(), ["packages/x/distribution/notes.md"]), []);
+});
+
+test("a FILE named dist is not build output", () => {
+  assert.equal(hasDirectorySegment("packages/x/dist", ["dist"]), false);
+  assert.equal(hasDirectorySegment("packages/x/dist/a.js", ["dist"]), true);
+});
+
+test("build output matching is case-insensitive on every platform", () => {
+  assert.equal(hasDirectorySegment("packages/x/Dist/a.js", ["dist"]), true);
+  assert.equal(hasDirectorySegment("packages/x/DIST/a.js", ["dist"]), true);
+});
+
+test("a broad allow list cannot re-enable nested build output", () => {
+  const policy = { ...basePolicy(), allowed_paths: ["**"], forbidden_paths: [".git/**"] };
+  assert.ok(
+    checkProjectPathPolicy(policy, ["packages/x/dist/a.js"]).some((e) =>
+      e.includes("generated artefact must not be committed")
+    )
+  );
+});
+
+test("the same-repository task policy also rejects nested build output", () => {
+  const task = { ...baseTask(), allowed_paths: ["**"], forbidden_paths: [] };
+  const errors = checkPathPolicy(task, ["packages/x/dist/a.js"], canonicalPathPolicy());
+  assert.ok(errors.some((e) => e.includes("generated artefact must not be committed")));
+});
+
+test("the project template carries the canonical build output inventory", () => {
+  assert.deepEqual(
+    basePolicy().build_output_directories,
+    canonicalPathPolicy().build_output_directories
+  );
+});
+
+test("a project policy that drops a canonical build output directory is a weakening", () => {
+  const policy = basePolicy();
+  policy.build_output_directories = policy.build_output_directories.filter((d) => d !== "dist");
+  assert.ok(
+    projectPolicyWeakenings(policy, canonicalPathPolicy()).some((f) => f.includes("'dist'"))
+  );
+});
+
+test("a consumer may EXTEND the build output inventory with its own framework output", () => {
+  const policy = { ...basePolicy(), build_output_directories: [...basePolicy().build_output_directories, ".next"] };
+  assert.deepEqual(projectPolicyWeakenings(policy, canonicalPathPolicy()), []);
+  assert.ok(
+    checkProjectPathPolicy({ ...policy, allowed_paths: ["**"] }, ["apps/web/.next/a.js"]).some((e) =>
+      e.includes("generated artefact must not be committed")
+    )
+  );
+});
+
+test("a build output entry that is a path or a glob is rejected", () => {
+  const policy = { ...basePolicy(), build_output_directories: ["packages/*/dist"] };
+  assert.ok(
+    validateProjectPathPolicyRules(policy).some((e) => e.includes("single directory name"))
   );
 });
 
@@ -677,38 +996,61 @@ test("a mutable third-party action tag is rejected", () => {
   );
 });
 
-test("the shipped consumer CI template satisfies both contracts", () => {
+test("the shipped consumer CI template satisfies the least-privilege contract", () => {
+  const file = `${CP}/templates/consumer-ci.template.yml`;
+  const content = readFileSync(file, "utf8");
+  assert.deepEqual(workflowFindings([file], () => content, workflowPolicy()), []);
+});
+
+test("the shipped consumer CI template is not adoptable unedited", () => {
   const file = `${CP}/templates/consumer-ci.template.yml`;
   const content = readFileSync(file, "utf8");
   const project = baseProject();
-  assert.deepEqual(workflowFindings([file], () => content, workflowPolicy()), []);
-  assert.deepEqual(
-    consumerWorkflowFindings([file], () => content, {
-      controlPlaneRepository: project.control_plane_repository,
-      controlPlaneCommit: project.control_plane_commit
-    }),
-    []
+  const findings = consumerWorkflowFindings([file], () => content, {
+    controlPlaneRepository: project.control_plane_repository,
+    controlPlaneCommit: project.control_plane_commit
+  });
+  assert.ok(findings.some((e) => e.includes("still the template placeholder")));
+});
+
+test("the adapter placeholder ref is rejected, a verified full sha is accepted", () => {
+  const placeholder = adapterWorkflow({ ref: '"REPLACE_WITH_VERIFIED_OSFORGE_CORE_MERGE_COMMIT_SHA"' });
+  assert.ok(
+    consumerWorkflowFindings(["w.yml"], () => placeholder, EXPECTED).some((e) =>
+      e.includes("still the template placeholder")
+    )
+  );
+  assert.deepEqual(consumerWorkflowFindings(["w.yml"], () => adapterWorkflow(), EXPECTED), []);
+});
+
+test("the previous CP1-A merge commit is not accepted as a consumer pin", () => {
+  const stale = "72c1c66bd69471b542fe1483a8e044741c5ac101";
+  const content = adapterWorkflow({ ref: `"${stale}"` });
+  assert.ok(
+    consumerWorkflowFindings(["w.yml"], () => content, EXPECTED).some((e) =>
+      e.includes("does not match the pinned commit")
+    )
   );
 });
 
 // --- end-to-end consumer validation ----------------------------------------
 
-/** Builds a pinned osforge-core fixture whose origin slug is the canonical one. */
+/** Builds a pinned osforge-core fixture whose remote identity is the canonical one. */
 function buildCoreFixture() {
-  const parent = tempDir("osforge-core-fixture-");
+  const parent = tempDir("core-fixture-");
   const root = join(parent, "avisabilisim-siborg", "osforge-core");
   mkdirSync(root, { recursive: true });
   initRepo(root);
   cpSync(CP, join(root, CP), { recursive: true });
   writeFileSync(join(root, "README.md"), "control plane fixture\n");
-  execFileSync("git", ["remote", "add", "origin", `https://github.com/${CORE_SLUG}.git`], { cwd: root });
+  execFileSync("git", ["remote", "add", "origin", `https://${CORE_HOST}/${CORE_SLUG}.git`], { cwd: root });
   const head = commitAll(root, "control plane fixture");
   return { root, head };
 }
 
 /** Builds a consumer repository that satisfies every consumer contract. */
 function buildConsumerFixture(corePin) {
-  const root = initRepo(tempDir("osforge-consumer-"));
+  const root = initRepo(tempDir("consumer-"));
   const project = {
     ...baseProject(),
     project_id: "FIXTURE-CONSUMER",
@@ -748,7 +1090,7 @@ function buildConsumerFixture(corePin) {
   }
 
   const workflow = readFileSync(`${CP}/templates/consumer-ci.template.yml`, "utf8")
-    .split(`"${baseProject().control_plane_commit}"`)
+    .split('"REPLACE_WITH_VERIFIED_OSFORGE_CORE_MERGE_COMMIT_SHA"')
     .join(`"${corePin}"`);
   writeFileSync(join(root, ".github", "workflows", "osforge-consumer-control-plane.yml"), workflow);
 
@@ -781,7 +1123,7 @@ test("the consumer entry point refuses a working-directory guess", () => {
 });
 
 test("a repository without a project manifest is rejected", () => {
-  const bare = initRepo(tempDir("osforge-bare-consumer-"));
+  const bare = initRepo(tempDir("bare-consumer-"));
   writeFileSync(join(bare, "README.md"), "no governance here\n");
   commitAll(bare, "bare");
   const errors = validateConsumerProject({ repoRoot: bare, coreRoot: CORE.root });
@@ -860,6 +1202,145 @@ test("the real change set of a consumer is judged against its project policy", (
   assert.ok(errors.some((e) => e.includes("deploy/production.yaml")));
 });
 
-test("the origin slug of a control plane checkout is read exactly", () => {
-  assert.equal(remoteSlug(CORE.root), CORE_SLUG);
+test("the identity of a control plane checkout is read exactly", () => {
+  assert.deepEqual(remoteIdentity(CORE.root), { ok: true, host: CORE_HOST, slug: CORE_SLUG });
+});
+
+test("a consumer whose adapter still carries the placeholder pin is rejected", () => {
+  const consumer = buildConsumerFixture(CORE.head);
+  const workflow = join(consumer.root, ".github", "workflows", "osforge-consumer-control-plane.yml");
+  writeFileSync(
+    workflow,
+    readFileSync(workflow, "utf8")
+      .split(`"${CORE.head}"`)
+      .join('"REPLACE_WITH_VERIFIED_OSFORGE_CORE_MERGE_COMMIT_SHA"')
+  );
+  commitAll(consumer.root, "placeholder pin");
+  const errors = validateConsumerProject({ repoRoot: consumer.root, coreRoot: CORE.root });
+  assert.ok(errors.some((e) => e.includes("still the template placeholder")));
+});
+
+test("a consumer committing nested build output is rejected end to end", () => {
+  const consumer = buildConsumerFixture(CORE.head);
+  mkdirSync(join(consumer.root, "packages", "web", "dist"), { recursive: true });
+  writeFileSync(join(consumer.root, "packages", "web", "dist", "bundle.js"), "console.log(1);\n");
+  const head = commitAll(consumer.root, "nested build output");
+  const errors = validateConsumerProject({
+    repoRoot: consumer.root,
+    coreRoot: CORE.root,
+    base: consumer.base,
+    head
+  });
+  assert.ok(errors.some((e) => e.includes("generated artefact must not be committed")));
+  assert.ok(errors.some((e) => e.includes("packages/web/dist/bundle.js")));
+});
+
+// --- external root, advisory hardening -------------------------------------
+
+test("a nested git repository is not validated as part of its parent", () => {
+  const outer = initRepo(tempDir("outer-"));
+  writeFileSync(join(outer, "README.md"), "outer\n");
+  commitAll(outer, "outer");
+  const inner = join(outer, "vendor", "inner");
+  mkdirSync(inner, { recursive: true });
+  initRepo(inner);
+  writeFileSync(join(inner, "README.md"), "inner\n");
+  commitAll(inner, "inner");
+  // Each root resolves to itself, never to the other: `--repo-root <outer>/vendor`
+  // (a plain directory inside the outer repository) is rejected outright.
+  assert.equal(resolveRepoRoot(outer).ok, true);
+  assert.equal(resolveRepoRoot(inner).ok, true);
+  const parentOfInner = resolveRepoRoot(join(outer, "vendor"));
+  assert.equal(parentOfInner.ok, false);
+  assert.ok(parentOfInner.reason.includes("not the root"));
+});
+
+test("a project manifest outside the consumer repository is refused", () => {
+  const consumer = buildConsumerFixture(CORE.head);
+  const errors = validateConsumerProject({
+    repoRoot: consumer.root,
+    coreRoot: CORE.root,
+    project: "../elsewhere/project.json"
+  });
+  assert.ok(errors.some((e) => e.includes("unsafe") || e.includes("escapes the repository root")));
+});
+
+test("a project path policy outside the consumer repository is refused", () => {
+  const consumer = buildConsumerFixture(CORE.head);
+  const projectFile = join(consumer.root, ".osforge", "project.json");
+  const project = { ...readJson(projectFile), project_policy_path: "../elsewhere/policy.json" };
+  writeFileSync(projectFile, `${JSON.stringify(project, null, 2)}\n`);
+  commitAll(consumer.root, "policy outside the repository");
+  const errors = validateConsumerProject({ repoRoot: consumer.root, coreRoot: CORE.root });
+  assert.ok(errors.some((e) => e.includes("project_policy_path")));
+});
+
+test("the entry point never falls back to the process working directory", () => {
+  const consumer = buildConsumerFixture(CORE.head);
+  const before = process.cwd();
+  // Even standing inside a completely different repository, the validated tree is
+  // the one named by --repo-root and nothing else.
+  const errors = validateConsumerProject({ repoRoot: consumer.root, coreRoot: CORE.root });
+  assert.deepEqual(errors, []);
+  assert.equal(process.cwd(), before);
+});
+
+// --- fixture cleanup (audit finding m-2) -----------------------------------
+
+test("a fixture root is removed by the cleanup helper", () => {
+  const dir = tempDir("cleanup-");
+  writeFileSync(join(dir, "a.txt"), "a\n");
+  assert.equal(existsSync(dir), true);
+  removeFixtureRoot(dir, tmpdir());
+  assert.equal(existsSync(dir), false);
+});
+
+test("cleanup refuses the temp root itself and anything above it", () => {
+  assert.throws(() => removeFixtureRoot(tmpdir(), tmpdir()), /outside the temp root/u);
+  assert.throws(() => removeFixtureRoot(join(tmpdir(), ".."), tmpdir()), /outside the temp root/u);
+  assert.throws(() => removeFixtureRoot(resolve("/"), tmpdir()), /outside the temp root/u);
+});
+
+test("cleanup refuses the repository working copy", () => {
+  // On a machine whose temp root happens to contain the checkout, this is caught by
+  // the nested-path guard instead; either way the working copy is never removable.
+  assert.throws(() => removeFixtureRoot(process.cwd(), tmpdir()), /refusing to remove/u);
+});
+
+test("cleanup refuses a nested path and a foreign directory name", () => {
+  const dir = tempDir("nested-guard-");
+  mkdirSync(join(dir, "child"), { recursive: true });
+  assert.throws(() => removeFixtureRoot(join(dir, "child"), tmpdir()), /nested path/u);
+  const foreign = mkdtempSync(join(realpathSync.native(tmpdir()), "not-a-fixture-"));
+  try {
+    assert.throws(() => removeFixtureRoot(foreign, tmpdir()), /not a fixture root/u);
+  } finally {
+    rmSync(foreign, { recursive: true, force: true });
+  }
+});
+
+test("cleanup refuses to follow a symlinked fixture root", () => {
+  const real = tempDir("symlink-target-");
+  const link = join(realpathSync.native(tmpdir()), `${FIXTURE_PREFIX}symlink-root-${process.pid}`);
+  let made = true;
+  try {
+    symlinkSync(real, link, "dir");
+  } catch {
+    made = false;
+  }
+  if (!made) {
+    return;
+  }
+  try {
+    assert.throws(() => removeFixtureRoot(link, tmpdir()), /symlink/u);
+    assert.equal(existsSync(real), true);
+  } finally {
+    rmSync(link, { recursive: false, force: true });
+  }
+});
+
+test("fixture roots are unique, so parallel runs cannot collide", () => {
+  const a = tempDir("collision-");
+  const b = tempDir("collision-");
+  assert.notEqual(a, b);
 });

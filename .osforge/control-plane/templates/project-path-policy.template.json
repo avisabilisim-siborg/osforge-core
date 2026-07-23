@@ -75,6 +75,8 @@
     "**/node_modules/**",
     "**/*.tsbuildinfo"
   ],
+  "build_output_directories_note": "Segment-aware and recursive: any path with one of these directory names as a segment, at any depth and in any letter case, is generated output. Carry every canonical entry verbatim and ADD your own framework output directories (for example '.next' for Next.js or '.nuxt' for Nuxt); never remove one.",
+  "build_output_directories": ["dist", "build", "coverage", "node_modules"],
   "user_owned_untracked_paths": [
     "docs/design/**"
   ]

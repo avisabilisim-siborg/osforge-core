@@ -72,6 +72,8 @@
     "ddg.html",
     "docs/design/**"
   ],
+  "build_output_directories": ["dist", "build", "coverage", "node_modules"],
+  "build_output_note": "Segment-aware build output (audit finding M-1). A glob such as 'dist/**' only covers the repository root, and '**/dist/**' additionally matches 'mydist/' in this matcher, so neither is a safe recursive rule. Every path that carries one of these names as a DIRECTORY segment, at any depth and in any letter case, is treated as generated output and can never be committed. The inventory is derived from this repository's .gitignore; a consumer extends it with its own framework output directories (for example '.next' or '.nuxt') and never removes an entry.",
   "consumer_minimum_protected_paths": [
     ".github/workflows/**",
     "CLAUDE.md",

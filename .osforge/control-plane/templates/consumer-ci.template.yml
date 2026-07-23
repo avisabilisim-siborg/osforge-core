@@ -41,13 +41,15 @@ jobs:
           persist-credentials: false
 
       # REPLACE (2/3): `repository` and `ref` must equal control_plane_repository
-      # and control_plane_commit in `.osforge/project.json`. `ref` is a full
-      # 40-character commit sha; a branch, a tag or `latest` is rejected.
+      # and control_plane_commit in `.osforge/project.json`. `ref` is the VERIFIED
+      # full 40-character osforge-core merge commit sha of the control plane
+      # version you adopted; a branch, `main`, a tag, `latest`, an abbreviated sha
+      # and the placeholder below are all rejected by the canonical validator.
       - name: Check out the canonical control plane at its pinned commit
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
         with:
           repository: avisabilisim-siborg/osforge-core
-          ref: "72c1c66bd69471b542fe1483a8e044741c5ac101"
+          ref: "REPLACE_WITH_VERIFIED_OSFORGE_CORE_MERGE_COMMIT_SHA"
           path: osforge-core
           fetch-depth: 0
           persist-credentials: false
