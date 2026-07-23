@@ -106,3 +106,39 @@ control plane pin, the repository identity and an exact path set, and it substit
 exactly one approval type on exactly those paths. Replay is prevented structurally: it is
 usable only while the base tree carries no project manifest. It creates no approval record,
 names no reviewer, does not enable auto-merge and does not weaken the human merge decision.
+
+## Approval binding (PR #28 audit F2 remediation)
+
+An approval record reaching the consumer validator is now **bound before it may
+be relied upon**, not merely well-formed. Shape validation proves the document is
+an approval; binding proves it is about *this* change:
+
+| Bound to | Rejected when |
+| --- | --- |
+| `target_repository` | the record names a different repository |
+| `target_sha` | the record names a different head sha |
+| `pull_request` | the record names a different pull request (when one is supplied) |
+| `decision` | the decision is not `approved` |
+| `expires_at` | the current instant is at or past the expiry |
+| `approved_at` | the approval is future-dated beyond a five-minute clock skew |
+| `approver_kind` / `approved_by` | the approver is not a human, or looks like automation |
+
+An approval supplied without a `--head` sha is refused: an approval is only ever
+valid for one exact head, so without one it cannot be evaluated. An approval that
+fails to bind is **reported as unusable**, never silently discarded, and the
+gate it was meant to satisfy stays closed. The binding context is printed as
+`CONSUMER_APPROVAL_BINDING` on every run that supplies one; when `--now` is not
+given the validator's own clock is used and says so.
+
+Before this change a well-formed record from another repository, for another sha,
+already expired, satisfied the protected-path, migration and production gates.
+
+## Workflow baseline (PR #28 audit F1 remediation)
+
+A baseline exemption is granted only when **every** condition holds at once: base
+commit supplied, path exactly canonical, index entry a plain regular file, present
+in the base tree at exactly the declared digest, working tree still identical, and
+absent from the change set. Any single failure — including a missing base commit,
+an unreadable base tree, a rename, a copy, a delete-and-recreate, a symlink or an
+internal error — withdraws the exemption for **every** workflow and restores the
+full strict contract plus the unnarrowed control-plane egress scope.

@@ -60,20 +60,36 @@ jobs:
         with:
           node-version: "24.15.0"
 
-      - name: Canonical consumer project validation
-        run: |
-          node "${GITHUB_WORKSPACE}/osforge-core/.osforge/control-plane/scripts/validate-consumer-project.mjs" \
-            --repo-root "${GITHUB_WORKSPACE}/consumer" \
-            --core-root "${GITHUB_WORKSPACE}/osforge-core"
-
-      - name: Project path policy against the real pull request diff
-        if: github.event_name == 'pull_request'
+      # Every validation run is bound to an exact base and head. A run without a
+      # base cannot prove that a declared existing product workflow is unchanged,
+      # and cannot evaluate a change set at all, so the canonical validator now
+      # refuses to grant a workflow baseline without one. Resolving the range here
+      # keeps push, pull_request and workflow_dispatch on the identical contract.
+      - name: Resolve the exact base and head commits
+        id: range
+        working-directory: consumer
         env:
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
+          set -eu
+          if [ -n "${PR_BASE_SHA:-}" ]; then
+            base="${PR_BASE_SHA}"
+            head="${PR_HEAD_SHA}"
+          else
+            head="$(git rev-parse HEAD)"
+            base="$(git rev-parse HEAD^)"
+          fi
+          echo "base=${base}" >> "${GITHUB_OUTPUT}"
+          echo "head=${head}" >> "${GITHUB_OUTPUT}"
+
+      - name: Canonical consumer project validation
+        env:
+          BASE_SHA: ${{ steps.range.outputs.base }}
+          HEAD_SHA: ${{ steps.range.outputs.head }}
+        run: |
           node "${GITHUB_WORKSPACE}/osforge-core/.osforge/control-plane/scripts/validate-consumer-project.mjs" \
             --repo-root "${GITHUB_WORKSPACE}/consumer" \
             --core-root "${GITHUB_WORKSPACE}/osforge-core" \
-            --base "${PR_BASE_SHA}" \
-            --head "${PR_HEAD_SHA}"
+            --base "${BASE_SHA}" \
+            --head "${HEAD_SHA}"

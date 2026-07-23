@@ -22,7 +22,12 @@ import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 import { readJson, runCli, controlPlaneDirFor } from "./cp-lib.mjs";
-import { validateManifest, FULL_COMMIT_SHA, commitPinErrors } from "./validate-manifest.mjs";
+import {
+  validateManifest,
+  approvalRejections,
+  FULL_COMMIT_SHA,
+  commitPinErrors
+} from "./validate-manifest.mjs";
 import {
   changedPathsFromGit,
   checkProjectPathPolicy,
@@ -389,6 +394,9 @@ export function validateConsumerProject(options = {}) {
 
   // 8. Human gates, at declaration level, for every task the project declares.
   const gates = readJson(join(controlPlane, "policies/human-gates.json"));
+  /** Approvals that are well-formed. NOTHING may rely on these until they bind. */
+  const candidateApprovals = [];
+  /** Approvals proven to be about this repository, this head sha and this moment. */
   const approvals = [];
   for (const relative of options.approvals ?? []) {
     const resolved = resolveInsideRepo(repoRoot, relative);
@@ -404,8 +412,49 @@ export function validateConsumerProject(options = {}) {
     const found = validateManifest("approval", approval, { coreRoot });
     errors.push(...found.map((e) => `${resolved.relative}: ${e}`));
     if (found.length === 0) {
-      approvals.push(approval);
+      candidateApprovals.push({ relative: resolved.relative, approval });
     }
+  }
+
+  // 8a. BIND every supplied approval before anything may rely on it (CP1-A.2
+  //     audit F2, inherited from CP1-A.1).
+  //
+  //     `validateManifest` only proves an approval is well-formed. It does not
+  //     prove the approval is about THIS repository, THIS head sha, THIS pull
+  //     request, or that it has not expired. Until now nothing else did either,
+  //     so a well-formed record copied from another repository — or written for a
+  //     sha that was reviewed months ago, or already expired — satisfied the
+  //     protected-path, migration and production gates for any change set.
+  //
+  //     Binding is mandatory: an approval that cannot be bound is rejected, and
+  //     the reason is reported rather than the record being quietly dropped.
+  const approvalClock = options.now ?? new Date().toISOString();
+  if (candidateApprovals.length > 0) {
+    console.log(
+      `CONSUMER_APPROVAL_BINDING repository=${project.repository} head=${options.head ?? "<none>"} ` +
+        `pull_request=${options.pullRequest ?? "<unbound>"} now=${approvalClock}` +
+        `${options.now ? "" : " (validator clock; pass --now for a reproducible evaluation)"}`
+    );
+  }
+  for (const { relative, approval } of candidateApprovals) {
+    if (!options.head) {
+      errors.push(
+        `${relative}: an approval record was supplied but no --head sha was given: ` +
+          "an approval is only ever valid for one exact head sha, so it cannot be evaluated and is refused"
+      );
+      continue;
+    }
+    const rejections = approvalRejections(approval, {
+      repository: project.repository,
+      targetSha: options.head,
+      pullRequest: options.pullRequest,
+      nowIso: approvalClock
+    });
+    if (rejections.length > 0) {
+      errors.push(`${relative}: approval is not usable: ${rejections.join("; ")}`);
+      continue;
+    }
+    approvals.push(approval);
   }
   for (const task of tasks) {
     const context = {};
@@ -434,6 +483,11 @@ export function validateConsumerProject(options = {}) {
   const workflowPolicy = readJson(join(controlPlane, "policies/workflow-policy.json"));
   const workflows = trackedWorkflows(repoRoot);
   const openRisks = [];
+  // The change set is read once, here, so the classifier can prove that a claimed
+  // baseline is absent from it (a rename, a copy or a delete-and-recreate of the
+  // same bytes is still a change at that path).
+  const changeSet =
+    options.base && options.head ? changedPathsFromGit(options.base, options.head, repoRoot) : null;
   let classified = { findings: [], controlPlaneWorkflows: workflows, baselineWorkflows: [] };
   if (workflows.length === 0) {
     errors.push("consumer repository declares no workflow: the control plane cannot be enforced in CI");
@@ -441,6 +495,7 @@ export function validateConsumerProject(options = {}) {
     classified = workflowClassificationFindings(project, workflows, readConsumer, {
       repoRoot,
       baseSha: options.base ?? null,
+      changes: changeSet,
       risks: openRisks
     });
     errors.push(...classified.findings);
@@ -462,9 +517,14 @@ export function validateConsumerProject(options = {}) {
       return resolved.ok && existsSync(resolved.absolute);
     })
   );
-  const controlPlaneScope = project.workflow_classification
-    ? [".osforge/**", ...classified.controlPlaneWorkflows]
-    : undefined;
+  // The narrowed control-plane scope is a privilege the classification earns. If
+  // the classification produced ANY finding, the classifier already withdrew it
+  // (`controlPlaneWorkflows` becomes every workflow), so the scan falls back to
+  // treating every workflow as control plane surface.
+  const controlPlaneScope =
+    project.workflow_classification && classified.findings.length === 0
+      ? [".osforge/**", ...classified.controlPlaneWorkflows]
+      : undefined;
   const scanned = trackedTextFiles(costPolicy, repoRoot);
   if (scanned.files.length === 0) {
     errors.push("consumer repository exposes no scannable file: refusing to report success without evidence");

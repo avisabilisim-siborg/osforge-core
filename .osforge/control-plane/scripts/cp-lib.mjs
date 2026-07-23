@@ -544,7 +544,7 @@ const ISO_DATE_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d
 /**
  * Minimal, fail-closed JSON-Schema subset validator.
  * Supports: type, required, properties, additionalProperties:false, enum, const,
- * items, minItems, uniqueItems, minLength, pattern, minimum, maximum,
+ * items, minItems, maxItems, uniqueItems, minLength, pattern, minimum, maximum,
  * format:date-time.
  */
 export function validateAgainstSchema(value, schema, path = "$") {
@@ -579,6 +579,12 @@ export function validateAgainstSchema(value, schema, path = "$") {
     }
     if (typeof schema.minItems === "number" && value.length < schema.minItems) {
       errors.push(`${path}: expected at least ${schema.minItems} item(s)`);
+    }
+    // An unsupported keyword is a silent allowance, so `maxItems` is enforced
+    // rather than ignored: a schema that declares a bound the validator does not
+    // apply is worse than a schema with no bound at all.
+    if (typeof schema.maxItems === "number" && value.length > schema.maxItems) {
+      errors.push(`${path}: expected at most ${schema.maxItems} item(s)`);
     }
     if (schema.uniqueItems === true) {
       const seen = new Set(value.map((v) => JSON.stringify(v)));

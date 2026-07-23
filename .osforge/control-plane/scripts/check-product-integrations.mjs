@@ -323,15 +323,50 @@ export function treeBlobId(root, commit, path) {
 }
 
 /**
+ * Index mode of a tracked path, or null when it is not tracked exactly once.
+ *
+ * The mode is what distinguishes a regular file from a symlink (120000) and from
+ * a gitlink (160000). A baseline is a statement about FILE CONTENT, so anything
+ * that is not a plain regular file cannot carry one.
+ */
+export function trackedFileMode(root, path) {
+  try {
+    const out = execFileSync("git", ["-C", root, "ls-files", "-s", "-z", "--", path], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"]
+    });
+    const records = out.split("\u0000").filter((r) => r !== "");
+    if (records.length !== 1) {
+      return null;
+    }
+    const match = /^(\d{6}) /u.exec(records[0]);
+    return match ? match[1] : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Every path a change set touches, canonicalised; rename/copy sources included. */
+export function changedPathsInDiff(changes) {
+  const out = new Set();
+  for (const entry of changes ?? []) {
+    const raw = typeof entry === "string" ? entry : entry.path;
+    const normalised = normalizePath(raw);
+    out.add(normalised.ok ? normalised.path : String(raw));
+  }
+  return out;
+}
+
+/**
  * Classifies every tracked workflow and proves the product baseline unchanged.
  *
  * @param project    validated project manifest
  * @param workflows  every tracked `.github/workflows/*.y[a]ml` path
  * @param readFile   (relativePath) => string
- * @param context    { repoRoot, baseSha, risks }
+ * @param context    { repoRoot, baseSha, changes, risks }
  * @returns {{findings:string[], controlPlaneWorkflows:string[], baselineWorkflows:string[]}}
  */
-export function workflowClassificationFindings(project, workflows, readFile, context = {}) {
+function classifyWorkflows(project, workflows, readFile, context = {}) {
   const findings = [];
   const risks = context.risks ?? [];
   const classification = project.workflow_classification;
@@ -388,19 +423,75 @@ export function workflowClassificationFindings(project, workflows, readFile, con
     }
   }
 
-  // 4. The baseline is a digest, not a promise. An existing workflow must be
-  //    byte-identical to the base tree, so 'unchanged' is proven rather than
-  //    asserted — and any edit, including a new egress line, fails closed.
-  const { repoRoot, baseSha } = context;
-  for (const entry of [...product, ...deploy]) {
-    const path = entry.path;
-    if (!tracked.has(path)) {
-      continue;
-    }
+  // 4. The baseline is a digest, not a promise. A baseline exemption is granted
+  //    ONLY when every condition below holds at the same time. There is no branch
+  //    in which a missing proof means "assume unchanged": each `continue` leaves
+  //    the path out of `verified`, so the workflow keeps the strict contract.
+  //
+  //    CP1-A.2 audit F1: this block used to verify the base tree only `if (baseSha)`.
+  //    A caller with no change set therefore accepted a brand-new workflow whose
+  //    digest the author had computed from their own file. Base proof is now
+  //    mandatory whenever a baseline is claimed.
+  const { repoRoot, baseSha, changes } = context;
+  const verified = new Set();
+  const baselineEntries = [...product, ...deploy];
+  const diffPaths = changes === undefined || changes === null ? null : changedPathsInDiff(changes);
+
+  if (baselineEntries.length > 0) {
     if (!repoRoot) {
-      findings.push(`workflow '${path}' declares a baseline digest but no repository root was supplied to verify it`);
+      findings.push(
+        "workflow baseline claimed but no consumer repository root was supplied: an unverifiable baseline is rejected"
+      );
+    }
+    if (!baseSha) {
+      findings.push(
+        "workflow baseline claimed but no base commit was supplied: 'unchanged' can only be proven against a base tree, " +
+          "so a baseline is never granted without one (supply --base and --head, and check out with full history)"
+      );
+    }
+  }
+
+  for (const entry of baselineEntries) {
+    const path = entry.path;
+    if (!tracked.has(path) || !repoRoot || !baseSha) {
       continue;
     }
+    // 4a. The declared path must be exactly canonical. A traversal spelling, a
+    //     Windows separator or a case variant is a different path, never this one.
+    const normalised = normalizePath(path);
+    if (!normalised.ok || normalised.path !== path) {
+      findings.push(`workflow '${path}' is not an exact, canonical repository-relative path: a baseline is refused`);
+      continue;
+    }
+    // 4b. A baseline is a statement about file content, so the entry must be a
+    //     plain regular file: a symlink or a gitlink can never carry one.
+    const mode = trackedFileMode(repoRoot, path);
+    if (mode === null) {
+      findings.push(`workflow '${path}' is not tracked as exactly one index entry: a baseline is refused`);
+      continue;
+    }
+    if (mode !== "100644" && mode !== "100755") {
+      findings.push(
+        `workflow '${path}' is tracked with mode ${mode}, not as a regular file: a symlinked or submodule workflow can never be a baseline`
+      );
+      continue;
+    }
+    // 4c. The base tree must actually contain it. This is what rejects a new
+    //     workflow, a rename target, a copy target and a delete-and-recreate.
+    const base = treeBlobId(repoRoot, baseSha, path);
+    if (base === null) {
+      findings.push(
+        `workflow '${path}' is declared as an existing baseline but does not exist in the base tree ${baseSha}: a new, renamed or copied workflow can never be a baseline`
+      );
+      continue;
+    }
+    if (base !== entry.base_tree_digest) {
+      findings.push(
+        `workflow '${path}' baseline digest does not match the base tree (base ${base}, declared ${entry.base_tree_digest})`
+      );
+      continue;
+    }
+    // 4d. The working tree must still be byte-identical to that base blob.
     const current = workingBlobId(repoRoot, path);
     if (current === null) {
       findings.push(`workflow '${path}' could not be digested: refusing to accept an unverifiable baseline`);
@@ -413,33 +504,31 @@ export function workflowClassificationFindings(project, workflows, readFile, con
       );
       continue;
     }
-    if (baseSha) {
-      const base = treeBlobId(repoRoot, baseSha, path);
-      if (base === null) {
-        findings.push(
-          `workflow '${path}' is declared as an existing baseline but does not exist in the base tree ${baseSha}: a new workflow can never be a baseline`
-        );
-        continue;
-      }
-      if (base !== entry.base_tree_digest) {
-        findings.push(
-          `workflow '${path}' baseline digest does not match the base tree (base ${base}, declared ${entry.base_tree_digest})`
-        );
-        continue;
-      }
+    // 4e. It must be absent from the change set entirely. Identical content is
+    //     not enough: a rename, a copy or a delete-and-recreate of the same bytes
+    //     is still a change a human has not reviewed at this path.
+    if (diffPaths !== null && diffPaths.has(path)) {
+      findings.push(
+        `workflow '${path}' appears in this change set: an existing product workflow that is added, renamed, copied, deleted or modified is never a baseline`
+      );
+      continue;
     }
-    // 5. Declared egress must cover the egress the file actually performs.
+    // 4f. Declared egress must cover the egress the file actually performs. Only
+    //     the product class carries an egress inventory; a deploy/production
+    //     workflow has no such field and is reported as an open risk instead.
     if (Array.isArray(entry.network_egress)) {
       const performsEgress = readFile(path).split(/\r?\n/u).some((line) => EGRESS_COMMAND.test(line));
       if (performsEgress && entry.network_egress.length === 0) {
         findings.push(
           `workflow '${path}' performs network egress but declares an empty network_egress inventory: the inventory must describe what the workflow really does`
         );
+        continue;
       }
     }
+    verified.add(path);
   }
 
-  // 6. A deploy or production workflow is recorded, never normalised away.
+  // 5. A deploy or production workflow is recorded, never normalised away.
   for (const entry of deploy) {
     risks.push(
       `deploy or production workflow '${entry.path}' exists in the consumer repository and stays outside every adoption change set` +
@@ -452,9 +541,39 @@ export function workflowClassificationFindings(project, workflows, readFile, con
     }
   }
 
+  // 6. One unresolved classification finding disqualifies the WHOLE lenient
+  //    model: no exemption is handed out, and the narrowed control plane scope is
+  //    not handed out either. Partial trust is how a fail-open is reintroduced.
+  if (findings.length > 0) {
+    return { findings, controlPlaneWorkflows: workflows, baselineWorkflows: [] };
+  }
+
   return {
     findings,
     controlPlaneWorkflows: controlPlane.filter((p) => tracked.has(p)),
-    baselineWorkflows: [...productPaths, ...deployPaths].filter((p) => tracked.has(p))
+    baselineWorkflows: [...verified]
   };
+}
+
+/**
+ * Fail-closed wrapper around the classifier.
+ *
+ * An unexpected exception — a git invocation that dies, an unreadable file, a
+ * malformed structure the schema did not anticipate — must never become a pass.
+ * It is converted into a finding AND every leniency is withdrawn, so a crash
+ * inside the lenient model can only ever make the result stricter.
+ */
+export function workflowClassificationFindings(project, workflows, readFile, context = {}) {
+  try {
+    return classifyWorkflows(project, workflows, readFile, context);
+  } catch (err) {
+    return {
+      findings: [
+        `workflow classification could not be evaluated (${err && err.message ? err.message : String(err)}): ` +
+          "an unverifiable classification is rejected"
+      ],
+      controlPlaneWorkflows: workflows,
+      baselineWorkflows: []
+    };
+  }
 }

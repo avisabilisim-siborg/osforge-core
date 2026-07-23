@@ -187,3 +187,33 @@ removed, any pull request with a change set fails with an explicit "this reposit
 already adopted" finding — that is the replay prevention working as designed. From then on
 every protected path change needs an ordinary human approval bound to the exact head sha,
 exactly as before.
+
+### 15. Every validation run must carry a base and a head
+
+A workflow baseline is a claim that a file is **unchanged**, and "unchanged" can
+only be proven against a base tree. The canonical validator therefore refuses to
+grant a baseline when no base commit is supplied.
+
+The shipped CI adapter resolves the range for you: it uses the pull request base
+and head on `pull_request`, and `HEAD^`/`HEAD` on `push` and `workflow_dispatch`.
+Two consequences for a consumer:
+
+- Keep `fetch-depth: 0` on the consumer checkout. A shallow clone cannot produce
+  the base tree, and the run fails closed rather than assuming.
+- If you invoke the validator yourself, always pass `--base` and `--head`.
+
+A consumer that declares no `existing_product_workflows` and no
+`deploy_or_production_workflows` is unaffected, and so is a CP1-A.1 consumer with
+no `workflow_classification` at all.
+
+### 16. Supplying an approval record
+
+An approval is bound to one repository, one exact head sha, one pull request and
+one expiry window. When you pass `--approval`, also pass `--head` (and
+`--pull-request` if the record names one); without a head the approval cannot be
+evaluated and is refused.
+
+Because the record names the head it approves, write it for the head you are
+actually approving. An approval whose repository, sha, pull request or expiry does
+not match is reported as unusable and the gate it was meant to satisfy stays
+closed.

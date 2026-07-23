@@ -71,3 +71,18 @@ authority stays with the human operator.
 
 Threat 47 is a deliberate usability cost. The alternative — silently ignoring a spent
 contract — would make the difference between "adopted" and "adopting" invisible.
+
+## PR #28 independent audit remediation
+
+| # | Threat | Impact | Control | Residual risk | Human gate |
+| --- | --- | --- | --- | --- | --- |
+| 48 | Baseline claimed with no base proof | A brand-new privileged workflow is accepted as "existing" and exempted from the permission and pin contract | Base commit is mandatory for any baseline claim; the base tree must carry the exact declared blob | A base tree an attacker also controls | Merge review |
+| 49 | Baseline claimed for a symlink or a gitlink | Content proof evaded via an indirection | The index mode must be `100644` or `100755` | — | Workflow review |
+| 50 | Baseline preserved across a rename, copy or delete-and-recreate | An unreviewed workflow appears at a reviewed path | The path must exist in the base tree AND be absent from the change set | — | Workflow review |
+| 51 | Partial trust after a failed classification | A clean entry keeps its exemption while its neighbour is rejected | One finding withdraws every exemption and the narrowed egress scope | — | Merge review |
+| 52 | Validator exception read as success | A crash inside the lenient path passes the run | The classifier is wrapped: any exception is a finding and every leniency is withdrawn; the CLI wrapper also exits non-zero | — | CI review |
+| 53 | Approval reused across repositories | A record from another project unlocks protected paths here | Approvals bind `target_repository` before use | Approval is a declaration, not authentication — prerequisite P2 | Required review |
+| 54 | Approval reused across shas | Code nobody approved is merged under an old approval | Approvals bind the exact `--head` sha; no head means the approval is refused | — | Required review |
+| 55 | Expired approval still honoured | An approval outlives its review | Expiry and clock skew are enforced at binding time | Clock manipulation on the operator machine | Approval hygiene |
+| 56 | Natural-language payload in a launch config | Root instructions shadowed through an accepted config file | Bounded alphabets exclude whitespace and shell metacharacters in `name` and `runtimeArgs`; item counts are bounded and enforced | — | Instruction review |
+| 57 | Declared schema bound not enforced | A stated limit that the validator ignores reads as protection | `maxItems` is implemented in the schema validator and directly tested | Other unimplemented keywords, if ever declared | Independent audit |

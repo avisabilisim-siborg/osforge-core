@@ -1,28 +1,50 @@
 {
   "$id": "osforge.control-plane.claude-launch-config",
   "title": "Exact non-instruction configuration shape for .claude/launch.json",
-  "description": "The ONLY file under a tool-local instruction directory that the instruction boundary may accept. It is accepted because of this schema, not because of its name: `additionalProperties: false` at every level means the document can carry dev-server launch configuration and nothing else. There is no field in which a prompt, a persona, a rule, a system message or an instruction override could be smuggled, so accepting this exact file cannot shadow the root instructions.",
+  "description": "The ONLY file under a tool-local instruction directory that the instruction boundary may accept. It is accepted because of this schema, not because of its name. Every field is a bounded identifier, a bounded shell-safe token, a port number or a bounded host URL: `additionalProperties: false` at every level plus these character classes mean the document cannot express a sentence, a prompt, a persona, a rule, a system message or an instruction override. CP1-A.2 audit F3: `name` and `runtimeArgs` previously admitted spaces and shell metacharacters, which was wide enough to carry natural-language text.",
   "type": "object",
   "additionalProperties": false,
   "required": ["version", "configurations"],
   "properties": {
-    "version": { "type": "string", "minLength": 1, "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+    "version": { "type": "string", "minLength": 1, "pattern": "^[0-9]{1,4}\\.[0-9]{1,4}\\.[0-9]{1,4}$" },
     "configurations": {
       "type": "array",
       "minItems": 1,
+      "maxItems": 16,
       "items": {
         "type": "object",
         "additionalProperties": false,
         "required": ["name"],
         "properties": {
-          "name": { "type": "string", "minLength": 1, "pattern": "^[A-Za-z0-9][A-Za-z0-9 ._:-]{0,63}$" },
-          "runtimeExecutable": { "type": "string", "minLength": 1, "pattern": "^[A-Za-z0-9][A-Za-z0-9._/-]{0,63}$" },
+          "name": {
+            "description": "An identifier or label. No whitespace, so a sentence cannot be spelled here.",
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
+          },
+          "runtimeExecutable": {
+            "description": "A command name or a repository-relative path, optionally written with a leading './'. No whitespace and no shell metacharacter.",
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^(\\./)?[A-Za-z0-9][A-Za-z0-9._/-]{0,63}$"
+          },
           "runtimeArgs": {
+            "description": "Individual argv entries, never a shell command line. The character class excludes whitespace, quotes, and every shell metacharacter ($ ` ; | & > < ( ) { } [ ] * ? ! ~ ^ \\ # ' \"), so a pipeline, a command substitution, a redirection, a chained command and a natural-language sentence are all unrepresentable. Each entry is at most 64 characters.",
             "type": "array",
-            "items": { "type": "string", "minLength": 1, "pattern": "^[^\\u0000-\\u001f\\u007f]{1,120}$" }
+            "maxItems": 32,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9_@%+=:,./-]{1,64}$"
+            }
           },
           "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
-          "url": { "type": "string", "minLength": 1, "pattern": "^https?://[A-Za-z0-9._:-]+$" }
+          "url": {
+            "description": "Origin only. The class excludes '@', so user-info credentials cannot be embedded, and excludes every shell metacharacter.",
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^https?://[A-Za-z0-9]([A-Za-z0-9.-]{0,61}[A-Za-z0-9])?(:[0-9]{1,5})?$"
+          }
         }
       }
     }

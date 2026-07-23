@@ -89,3 +89,29 @@ P7 remains open after CP1-A.2. `.github/workflows/core-ci.yml` is outside this t
 exception is re-targeted to CP1-A.3 in
 `.osforge/control-plane/policies/workflow-policy.json` and is still printed by
 `check-workflow-permissions.mjs` on every run.
+
+## CP1-A.3 security debt (recorded by the PR #28 audit remediation)
+
+| Item | Exact file | Exact references | Why it matters | Required approach |
+| --- | --- | --- | --- | --- |
+| D1 | `.github/workflows/core-ci.yml` | `actions/checkout@v4` (jobs A–G), `actions/setup-node@v4` (jobs A–G) | A mutable tag can be re-pointed at new code by the action owner or by anyone who compromises that account. Core CI is a **required** status check, so the retagged code would run on every pull request with repository read access. | Pin both to full 40-character commit shas, add `persist-credentials: false`, in a **separate** pull request scoped to `core-ci.yml`. Do not widen an unrelated pull request to cover it. |
+
+D1 is audit finding F4. It is not a regression introduced by PR #28: it predates
+CP1-A.1, and `core-ci.yml` is outside the `allowed_paths` of both CP1-A.1 and
+CP1-A.2. It stays recorded as an exception in
+`.osforge/control-plane/policies/workflow-policy.json` with `expires_with:
+CP1-A.3`, and `check-workflow-permissions.mjs` prints it on every run, so it can
+never become a silent allowance.
+
+## Solo Maintainer Mode — recorded honestly
+
+The repository ruleset is unchanged by this work, including
+`required_approving_review_count: 0` (prerequisite P2 remains open).
+
+- Solo Maintainer Mode is **not** a second independent human review.
+- An approval manifest is a reviewable declaration of intent, **not** a
+  cryptographic proof that a human produced it.
+- Deterministic CI and an independent Opus security audit are **not** substitutes
+  for a second human reviewer.
+- The merge decision belongs to the user. No automation in this repository takes
+  it, and none of the CP1-A.2 additions weakens it.

