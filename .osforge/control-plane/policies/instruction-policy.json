@@ -1,11 +1,29 @@
 {
   "policy_id": "osforge.control-plane.instruction",
-  "control_plane_version": "1.1.0",
+  "control_plane_version": "1.2.0",
   "description": "Instruction boundary. The canonical agent instructions are the two root files below. Every security invariant must be present, by id, in BOTH of them, so a tool-specific file can never carry a weaker posture than its sibling.",
   "canonical_instruction_files": ["CLAUDE.md", "AGENTS.md"],
   "instruction_file_regex": "(^|/)(claude|agents)[^/]*\\.md$",
   "forbidden_instruction_dir_regex": "(^|/)\\.(claude|codex|cursor|aider)/",
   "nested_instruction_allowlist": [],
+  "non_instruction_config_files": [
+    {
+      "path": ".claude/launch.json",
+      "schema": "claude-launch-config",
+      "why": "A dev-server launch configuration is machine configuration, not agent instruction. It is accepted by EXACT path and only after it validates against a closed schema that has no field capable of carrying a prompt, a persona, a rule or an instruction override.",
+      "recorded_in": "docs/control-plane/CONSUMER_ADOPTION_BOOTSTRAP.md"
+    }
+  ],
+  "non_instruction_config_rules": {
+    "exact_path_only": true,
+    "glob_allowance_forbidden": true,
+    "nested_paths_forbidden": true,
+    "case_variants_forbidden": true,
+    "symlinks_forbidden": true,
+    "must_be_valid_json": true,
+    "must_validate_against_closed_schema": true,
+    "note": "There is NO allowance for `.claude/**`. Every other path under a tool-local instruction directory — `.claude/CLAUDE.md`, `.claude/AGENTS.md`, `.claude/instructions.md`, `.claude/prompt.md`, `.claude/subdir/launch.json`, an unknown `.claude` file, a case variant and a symlink — stays a finding. Nested instruction shadowing is unchanged."
+  },
   "rules": {
     "nested_instruction_files_forbidden": true,
     "local_override_files_forbidden": true,

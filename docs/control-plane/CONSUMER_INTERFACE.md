@@ -163,3 +163,35 @@ the interface.
   `docs/control-plane/THREAT_MODEL.md`; no part of this interface claims otherwise.
 - It does not make a solo maintainer into two reviewers. Where only one human is involved,
   the record says so.
+
+## CP1-A.2 additions
+
+Three optional manifest surfaces and one optional contract file were added so a repository
+with history can adopt. All four are additive: a manifest without them validates exactly as
+it did under CP1-A.1.
+
+| Surface | Where | Effect |
+| --- | --- | --- |
+| `product_runtime_integrations` | project manifest | exact inventory of the product's own runtime paid-model calls |
+| `workflow_classification` | project manifest | assigns each workflow to the adapter class, the digest-pinned product baseline, or the deploy class |
+| `non_instruction_config_files` | instruction policy | one exact path, `.claude/launch.json`, accepted only against a closed schema |
+| `.osforge/adoption-bootstrap.json` | consumer repository | one-time, replay-resistant first-adoption contract |
+
+`validate-consumer-project.mjs` gains one additive flag, `--bootstrap <relative path>`.
+Without it the contract is auto-detected at `.osforge/adoption-bootstrap.json`; presence
+alone authorises nothing, because the contract must fully validate against the real base
+commit and the real diff before it means anything.
+
+New machine-readable output lines, all of them announcements rather than silence:
+`CONSUMER_PRODUCT_RUNTIME_BASELINE`, `CONSUMER_BOOTSTRAP_PRESENT`,
+`CONSUMER_BOOTSTRAP_ACTIVE`, `CONSUMER_OPEN_RISK` and `INSTRUCTION_CONFIG_EXCEPTION`.
+
+What did NOT change: the control plane and consumer CI still may not configure, request or
+invoke a paid model API; GitHub Actions still may not invoke a model or consume a secret;
+the control plane still reads no secret; and after adoption every protected path change
+still needs a human approval bound to the exact head sha. A product runtime inventory is
+not control plane permission, a workflow baseline is not a licence for what the workflow
+does, and the bootstrap does not touch the human merge decision.
+
+Full reasoning, including why each allowance cannot be widened into a bypass:
+`docs/control-plane/CONSUMER_ADOPTION_BOOTSTRAP.md`.

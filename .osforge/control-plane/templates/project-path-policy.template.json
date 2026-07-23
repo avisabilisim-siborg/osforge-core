@@ -1,6 +1,6 @@
 {
-  "schema_version": "1.1.0",
-  "control_plane_version": "1.1.0",
+  "schema_version": "1.2.0",
+  "control_plane_version": "1.2.0",
   "kind": "project-path-policy",
   "project_id": "EXAMPLE-CONSUMER",
   "description": "Consumer project path policy. Every canonical class below is carried unchanged from the canonical path policy and then EXTENDED with project-specific entries. Removing a canonical entry is rejected by check-path-policy.mjs.",

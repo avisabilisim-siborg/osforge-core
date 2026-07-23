@@ -1,6 +1,6 @@
 {
   "policy_id": "osforge.control-plane.workflow",
-  "control_plane_version": "1.1.0",
+  "control_plane_version": "1.2.0",
   "description": "Least-privilege workflow contract. Every key in this file is enforced by check-workflow-permissions.mjs, which parses the workflow with the deterministic YAML subset parser instead of matching lines.",
   "allowed_permission_values": ["read", "none"],
   "required_permissions": { "contents": "read" },
@@ -28,8 +28,8 @@
     "exceptions": [
       {
         "file": ".github/workflows/core-ci.yml",
-        "reason": "outside the CP1-A allowed_paths; pinning is tracked as repository prerequisite P7 in docs/control-plane/REPOSITORY_PREREQUISITES.md",
-        "expires_with": "CP1-A2"
+        "reason": "outside the CP1-A.2 allowed_paths as well; still OPEN and still tracked as repository prerequisite P7 in docs/control-plane/REPOSITORY_PREREQUISITES.md. CP1-A.2 deliberately did not touch core-ci.yml, so this exception is re-targeted rather than closed, and it stays printed at every run.",
+        "expires_with": "CP1-A.3"
       }
     ],
     "note": "Mutable tags such as @v4 are rejected. Every exception is printed at runtime so it can never be a silent allowance."

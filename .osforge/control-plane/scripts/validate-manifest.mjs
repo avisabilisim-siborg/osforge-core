@@ -17,7 +17,7 @@ import {
 export const REPOSITORY_KINDS = ["task", "audit", "approval", "state"];
 
 /** Manifests that describe how a consumer repository binds to this plane (CP1-A.1). */
-export const CONSUMER_KINDS = ["project", "version-lock", "project-path-policy"];
+export const CONSUMER_KINDS = ["project", "version-lock", "project-path-policy", "adoption-bootstrap"];
 
 export const KINDS = [...REPOSITORY_KINDS, ...CONSUMER_KINDS];
 
@@ -370,6 +370,79 @@ export function validateProjectRules(project) {
       errors.push(`project.user_owned_untracked_paths entry is not repository-relative (${reason})`);
     }
   }
+
+  // CP1-A.2 — the two optional inventories are exact by construction. Their
+  // paths are concrete files, never patterns, so they are canonicalised as
+  // paths rather than as policy patterns.
+  for (const integration of project.product_runtime_integrations ?? []) {
+    for (const field of ["runtime_source_paths", "reference_paths"]) {
+      for (const path of integration[field] ?? []) {
+        const normalised = normalizePath(path);
+        if (!normalised.ok || normalised.path !== path) {
+          errors.push(
+            `project.product_runtime_integrations[${integration.integration_id}].${field} entry ${JSON.stringify(path)} is not an exact, canonical repository-relative path`
+          );
+        }
+      }
+    }
+  }
+  const classification = project.workflow_classification;
+  if (classification) {
+    const paths = [
+      ...(classification.control_plane_consumer_workflows ?? []),
+      ...(classification.existing_product_workflows ?? []).map((w) => w.path),
+      ...(classification.deploy_or_production_workflows ?? []).map((w) => w.path)
+    ];
+    for (const path of paths) {
+      const normalised = normalizePath(path);
+      if (!normalised.ok || normalised.path !== path) {
+        errors.push(`project.workflow_classification entry ${JSON.stringify(path)} is not an exact, canonical repository-relative path`);
+      }
+    }
+    const seen = new Set();
+    for (const path of paths) {
+      if (seen.has(path)) {
+        errors.push(`project.workflow_classification declares '${path}' in more than one class`);
+      }
+      seen.add(path);
+    }
+  }
+  return errors;
+}
+
+/** Security cross-field rules for a one-time adoption bootstrap contract. */
+export function validateAdoptionBootstrapRules(contract) {
+  const errors = [];
+  if (contract.kind !== "adoption-bootstrap") {
+    errors.push("adoption-bootstrap.kind must be exactly 'adoption-bootstrap'");
+  }
+  if (contract.single_use !== true) {
+    errors.push("adoption-bootstrap.single_use must be true");
+  }
+  errors.push(...commitPinErrors("adoption-bootstrap.base_commit", contract.base_commit));
+  errors.push(...commitPinErrors("adoption-bootstrap.control_plane_commit", contract.control_plane_commit));
+  for (const field of ["consumer_repository", "control_plane_repository"]) {
+    if (typeof contract[field] !== "string" || !/^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/u.test(contract[field])) {
+      errors.push(`adoption-bootstrap.${field} must be an exact 'owner/repo' slug`);
+    }
+  }
+  // Enumerated paths, never patterns: a glob here would turn a reviewed list of
+  // files into an open-ended one.
+  for (const path of contract.allowed_changed_paths ?? []) {
+    if (/[*?]/u.test(String(path))) {
+      errors.push(`adoption-bootstrap.allowed_changed_paths entry ${JSON.stringify(path)} is a pattern; only exact paths may be enumerated`);
+      continue;
+    }
+    const normalised = normalizePath(path);
+    if (!normalised.ok || normalised.path !== path) {
+      errors.push(`adoption-bootstrap.allowed_changed_paths entry ${JSON.stringify(path)} is not an exact, canonical repository-relative path`);
+    }
+  }
+  for (const [assertion, value] of Object.entries(contract.assertions ?? {})) {
+    if (value !== true) {
+      errors.push(`adoption-bootstrap.assertions.${assertion} must be true`);
+    }
+  }
   return errors;
 }
 
@@ -450,6 +523,9 @@ export function validateManifest(kind, manifest, options = {}) {
   }
   if (kind === "project-path-policy") {
     return validateProjectPathPolicyRules(manifest);
+  }
+  if (kind === "adoption-bootstrap") {
+    return validateAdoptionBootstrapRules(manifest);
   }
   return [];
 }

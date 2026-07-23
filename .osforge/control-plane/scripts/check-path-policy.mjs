@@ -212,10 +212,18 @@ export function projectPolicyWeakenings(projectPolicy, canonicalPolicy) {
  * @param policy    validated project path policy
  * @param changes   array of raw path strings, or `{status, path, origin}` records
  * @param approvals approval records already validated against this exact head sha
+ * @param options   { bootstrapAllowedPaths } — the exact path set of a FULLY
+ *                  VALIDATED one-time adoption bootstrap (CP1-A.2). It stands in
+ *                  for a `protected_path_change` approval on those exact paths and
+ *                  on nothing else. It never reaches the forbidden, user-owned,
+ *                  secret or generated classes (those are evaluated and rejected
+ *                  before this point), and it never stands in for a migration,
+ *                  production or merge approval.
  */
-export function checkProjectPathPolicy(policy, changes, approvals = []) {
+export function checkProjectPathPolicy(policy, changes, approvals = [], options = {}) {
   const errors = [...patternsConflict(policy.allowed_paths, policy.forbidden_paths)];
   const approvalTypes = (approvals ?? []).map((a) => a.approval_type);
+  const bootstrapPaths = new Set(options.bootstrapAllowedPaths ?? []);
 
   for (const entry of changes) {
     const record = typeof entry === "string" ? { status: "M", path: entry, origin: "change" } : entry;
@@ -252,7 +260,11 @@ export function checkProjectPathPolicy(policy, changes, approvals = []) {
     }
 
     // 3. Classes that stay reachable, but only with an exact human approval.
-    if (matchesAnyInsensitive(path, policy.protected_paths) && !approvalTypes.includes("protected_path_change")) {
+    if (
+      matchesAnyInsensitive(path, policy.protected_paths) &&
+      !approvalTypes.includes("protected_path_change") &&
+      !bootstrapPaths.has(path)
+    ) {
       errors.push(`protected path changed without a 'protected_path_change' approval: ${where}`);
     }
     if (matchesAnyInsensitive(path, policy.migration_paths) && !approvalTypes.includes("database_migration")) {

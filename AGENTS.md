@@ -82,3 +82,36 @@ tool-specific file can never carry a weaker posture than its sibling.
   `docs/control-plane/REPOSITORY_PREREQUISITES.md`.
 - An approval record is a reviewable declaration of a human decision, not a
   cryptographic proof of human identity.
+
+## Consumer adoption compatibility (CP1-A.2)
+
+These four allowances exist so a repository with real product history can adopt. None of
+them relaxes an invariant above. Full reasoning:
+`docs/control-plane/CONSUMER_ADOPTION_BOOTSTRAP.md`.
+
+- A consumer PRODUCT may call a paid model in its own runtime. That fact may be recorded
+  as an exact inventory in `product_runtime_integrations`, enumerating individual files.
+  It is an inventory, not permission: it grants the control plane and CI nothing, it can
+  never cover `.osforge/**` or `.github/**`, and CP-INV-08 is unchanged. The control plane
+  itself still never uses, requests or configures a paid model API.
+- Only the NAME of a credential environment variable is ever recorded. No validator reads,
+  resolves, forwards or logs its value, and a manifest carrying key material is rejected
+  without echoing it.
+- A consumer's pre-existing product workflows are classified separately from the consumer
+  control plane adapter and pinned to their base-tree blob digest. Being a baseline proves
+  a workflow is UNCHANGED; it never excuses what the workflow does. A forbidden trigger, a
+  consumed secret, a push, an auto-merge or a deploy command fails closed in every
+  workflow.
+- There is no `.claude/**` allowance. Exactly one path, `.claude/launch.json`, may be
+  accepted, and only when its content validates against a closed schema that has no field
+  able to carry instruction text. CP-INV-15 is unchanged: nested, case-variant, traversal,
+  symlinked and unknown `.claude` paths remain findings.
+- A first adoption may carry a one-time `.osforge/adoption-bootstrap.json`. It substitutes
+  for exactly one approval type (`protected_path_change`) on exactly the paths it
+  enumerates, bound to the base commit, the base tree, the control plane pin and the proven
+  repository identity. It forges no approval and names no reviewer. It is usable only while
+  the base tree carries no project manifest, so it cannot be replayed. CP-INV-06,
+  CP-INV-07, CP-INV-13 and CP-INV-14 are unchanged, and the human merge decision is
+  untouched.
+- Never create an approval record for a commit that does not exist yet. If a gate cannot
+  be satisfied honestly, stop and report (CP-INV-03).

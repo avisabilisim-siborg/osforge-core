@@ -73,3 +73,19 @@ gh api repos/avisabilisim-siborg/osforge-core/rulesets/18951811
 ```
 
 Re-run it after applying the plan and record the output as audit evidence.
+
+## Consumer-side prerequisites for a first adoption (CP1-A.2)
+
+| # | Prerequisite | Why | If skipped |
+| --- | --- | --- | --- |
+| C1 | The consumer CI adapter checks out with `fetch-depth: 0` | The bootstrap is proven against the BASE TREE; a shallow clone cannot produce it | Validation fails closed with an explicit shallow-clone message |
+| C2 | The consumer repository has an `origin` remote resolving to its exact `owner/repo` on `github.com` | The bootstrap binds to a proven identity, so a fork carrying a copied contract is rejected | The bootstrap is rejected: identity cannot be proven |
+| C3 | Every tracked workflow is classified before the adoption pull request | An unclassified workflow is a finding by design | Adoption is blocked until each workflow is placed in exactly one class |
+| C4 | Existing product workflow digests are taken from the base tree | The baseline proves "unchanged"; a digest taken from a modified file proves nothing | Digest drift is reported and adoption is blocked |
+| C5 | The spent bootstrap is removed in the first follow-up pull request | Replay prevention rejects it from then on | Every later pull request with a change set fails until it is removed |
+
+P7 remains open after CP1-A.2. `.github/workflows/core-ci.yml` is outside this task's
+`allowed_paths` as well, so its action pinning was deliberately not changed here. The
+exception is re-targeted to CP1-A.3 in
+`.osforge/control-plane/policies/workflow-policy.json` and is still printed by
+`check-workflow-permissions.mjs` on every run.

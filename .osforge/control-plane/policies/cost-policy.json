@@ -1,16 +1,48 @@
 {
   "policy_id": "osforge.control-plane.cost",
-  "control_plane_version": "1.1.0",
+  "control_plane_version": "1.2.0",
   "mode": "subscription-only",
   "paid_ai_allowed": false,
   "max_remediation_loops": 0,
   "scan_surface": {
     "strategy": "all-tracked-files-except-binary",
     "binary_extensions": [
-      "png", "jpg", "jpeg", "gif", "webp", "ico", "svgz", "pdf", "zip", "gz", "tgz",
-      "bz2", "xz", "7z", "rar", "woff", "woff2", "ttf", "otf", "eot", "mp3", "mp4",
-      "mov", "avi", "wasm", "exe", "dll", "so", "dylib", "jar", "class", "bin",
-      "bundle", "keystore", "p12", "pfx"
+      "png",
+      "jpg",
+      "jpeg",
+      "gif",
+      "webp",
+      "ico",
+      "svgz",
+      "pdf",
+      "zip",
+      "gz",
+      "tgz",
+      "bz2",
+      "xz",
+      "7z",
+      "rar",
+      "woff",
+      "woff2",
+      "ttf",
+      "otf",
+      "eot",
+      "mp3",
+      "mp4",
+      "mov",
+      "avi",
+      "wasm",
+      "exe",
+      "dll",
+      "so",
+      "dylib",
+      "jar",
+      "class",
+      "bin",
+      "bundle",
+      "keystore",
+      "p12",
+      "pfx"
     ],
     "max_file_bytes": 4194304,
     "note": "There is no extension allowlist. A new config format, a shell script, a Dockerfile or a Python helper is scanned the moment it is tracked, so a new file type can never become a silent bypass."
@@ -30,11 +62,18 @@
     "tests/control-plane-adversarial.test.mjs",
     "tests/control-plane-consumer.test.mjs",
     "AGENTS.md",
-    "CLAUDE.md"
+    "CLAUDE.md",
+    "docs/control-plane/CONSUMER_ADOPTION_BOOTSTRAP.md",
+    "tests/control-plane-adoption.test.mjs"
   ],
   "declaration_never_applies_to": {
     "paid_ai_allowed_true": true,
-    "path_patterns": [".github/workflows/**", "package.json", "package-lock.json", ".osforge/tasks/**"],
+    "path_patterns": [
+      ".github/workflows/**",
+      "package.json",
+      "package-lock.json",
+      ".osforge/tasks/**"
+    ],
     "note": "A declaration file may name the forbidden vocabulary because it defines the prohibition. It can never switch the prohibition off, and the exemption never covers a workflow, a package manifest or a task manifest."
   },
   "rules": [
@@ -81,7 +120,8 @@
       "negative_fixture_paths": [
         "tests/control-plane-policy.test.mjs",
         "tests/control-plane-adversarial.test.mjs",
-        "tests/control-plane-consumer.test.mjs"
+        "tests/control-plane-consumer.test.mjs",
+        "tests/control-plane-adoption.test.mjs"
       ],
       "why": "paid_ai_allowed must never be true",
       "pattern": "paid_ai_allowed\"?\\s*[:=]\\s*(true|\"true\"|yes)\\b"
@@ -105,6 +145,76 @@
     ".osforge/control-plane/scripts/**",
     ".github/workflows/**"
   ],
+  "control_plane_scope_note": "This is the scope INSIDE osforge-core, where every workflow is a control plane workflow. When a CONSUMER repository is scanned, the workflow half of this scope is replaced by the exact consumer control plane workflow paths the project manifest classifies, because a consumer's product workflows are not the control plane. The `.osforge/**` half is never relaxed, and the scope-'all' rules (paid model endpoint, paid model SDK, model-invoking action) keep applying to every consumer workflow regardless.",
+  "product_runtime_declaration": {
+    "enabled": true,
+    "applies_to": "consumer repositories only",
+    "purpose": "A consumer product may legitimately call a paid model AT RUNTIME, from its own service, with its own secret. That is a product decision, not a control plane capability. It is modelled as an exact, enumerated INVENTORY so the control plane can tell 'a declared, reviewed, unchanged product integration' apart from 'an undeclared paid model call', instead of being unable to tell them apart at all.",
+    "declarable_rule_ids": [
+      "endpoint.paid-model-host",
+      "credential.provider-env-name",
+      "sdk.paid-model-client"
+    ],
+    "runtime_only_rule_ids": [
+      "endpoint.paid-model-host",
+      "sdk.paid-model-client"
+    ],
+    "runtime_only_note": "An endpoint literal or a model SDK import may only be waived on a declared RUNTIME source path. A documentation file or an environment example may name the credential variable, and nothing more: a doc can never host an endpoint or an SDK client.",
+    "never_declarable_rule_ids": [
+      "flag.paid-ai-enabled",
+      "action.model-invoking",
+      "egress.control-plane-network-call",
+      "egress.control-plane-remote-url"
+    ],
+    "never_declarable_path_patterns": [
+      ".osforge/**",
+      ".github/**"
+    ],
+    "never_declarable_path_note": "A declaration can never cover the control plane surface or ANY workflow file. This is the structural reason a product runtime inventory cannot become control plane or CI permission to call a paid model: the two surfaces do not intersect.",
+    "known_providers": {
+      "anthropic": [
+        "api.anthropic.com"
+      ],
+      "openai": [
+        "api.openai.com"
+      ],
+      "google": [
+        "generativelanguage.googleapis.com",
+        "aiplatform.googleapis.com"
+      ],
+      "azure-openai": [
+        "models.inference.ai.azure.com"
+      ],
+      "aws-bedrock": [
+        "bedrock-runtime.us-east-1.amazonaws.com"
+      ],
+      "mistral": [
+        "api.mistral.ai"
+      ],
+      "cohere": [
+        "api.cohere.com"
+      ]
+    },
+    "known_providers_note": "Provider and host are BOTH exact and must agree. A wildcard provider, a wildcard host, an unknown provider and a lookalike host ('api.anthropic.com.evil.example') all fail, because the host must be an exact member of the declared provider's list.",
+    "secret_reference_rules": {
+      "name_pattern": "^[A-Z][A-Z0-9_]{2,63}$",
+      "value_forbidden": true,
+      "note": "Only the NAME of an environment variable is ever recorded. A manifest carrying anything that looks like a key material value is rejected, and no validator ever reads the variable's value, so a secret cannot leak into a manifest, a log line or a finding message."
+    },
+    "secret_value_shapes": [
+      "sk-[A-Za-z0-9_-]{16,}",
+      "sk-ant-[A-Za-z0-9_-]{16,}",
+      "AIza[0-9A-Za-z_-]{30,}",
+      "AKIA[0-9A-Z]{12,}",
+      "gh[pousr]_[A-Za-z0-9]{20,}"
+    ],
+    "control_plane_guarantees": [
+      "paid_ai_allowed stays false for the control plane and for consumer CI, unchanged",
+      "no control plane script reads, resolves or forwards a declared secret reference",
+      "no consumer CI workflow may consume a repository or environment secret",
+      "a declaration is inert data: it waives a SOURCE-SCAN finding on exact declared paths and grants no capability of any kind"
+    ]
+  },
   "base64_probe": {
     "enabled": true,
     "min_length": 16,

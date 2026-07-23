@@ -1,0 +1,50 @@
+{
+  "schema_version": "1.2.0",
+  "control_plane_version": "1.2.0",
+  "kind": "adoption-bootstrap",
+  "single_use": true,
+  "consumer_repository": "example-owner/example-consumer",
+  "consumer_default_branch": "main",
+  "base_commit": "0000000000000000000000000000000000000000",
+  "control_plane_repository": "avisabilisim-siborg/osforge-core",
+  "control_plane_commit": "0000000000000000000000000000000000000000",
+  "adoption_phase": "CP1-B",
+  "allowed_changed_paths": [
+    ".osforge/project.json",
+    ".osforge/control-plane.lock.json",
+    ".osforge/adoption-bootstrap.json",
+    ".osforge/policies/project-path-policy.json",
+    ".osforge/tasks/adoption.task.json",
+    ".github/workflows/osforge-consumer-control-plane.yml",
+    "CLAUDE.md",
+    "AGENTS.md",
+    "docs/osforge/ADOPTION.md"
+  ],
+  "forbidden_path_categories": [
+    "product_runtime_code",
+    "user_interface",
+    "api_endpoint",
+    "authentication_or_otp",
+    "database_schema_or_migration",
+    "environment_or_secret",
+    "feature_flag",
+    "deploy_or_release_workflow",
+    "production_configuration",
+    "existing_product_workflow",
+    "package_dependency"
+  ],
+  "user_owned_untracked_paths": [
+    "docs/design/**"
+  ],
+  "assertions": {
+    "no_product_code_change": true,
+    "no_runtime_or_auth_change": true,
+    "no_database_or_migration_change": true,
+    "no_secret_change": true,
+    "no_feature_flag_activation": true,
+    "no_deploy_release_or_production_change": true,
+    "human_merge_decision_required": true
+  },
+  "created_by": "human-operator",
+  "created_at": "2026-01-01T00:00:00.000Z"
+}

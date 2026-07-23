@@ -73,3 +73,36 @@ administrator disabling required checks, or platform-level compromise. It does n
 network egress at runtime, and its subscription-only scan is source-level. It reduces
 agent blast radius and makes agent behaviour reviewable; it is not a substitute for
 branch protection, code review and least-privilege GitHub permissions.
+
+## Consumer adoption boundaries (CP1-A.2)
+
+**Control plane versus product runtime.** The subscription-only rule is unchanged for the
+control plane, for consumer validation CI and for GitHub Actions: no paid model API is
+configured, requested or invoked, and `paid_ai_allowed` stays false. A consumer PRODUCT may
+call a paid model in its own runtime, and that fact may be declared as an exact inventory
+so the plane can tell it apart from an undeclared one. The declaration grants nothing. It
+can never cover `.osforge/**` or `.github/**`, so the declarable surface and the control
+plane surface are disjoint sets — a product inventory cannot become CI permission.
+
+**Product AI secret isolation.** Only the NAME of an environment variable is ever recorded.
+No control plane script resolves it, reads it, forwards it or logs it, and a manifest
+carrying anything shaped like key material is rejected without echoing the matched text.
+Consumer CI may not consume a repository or environment secret at all.
+
+**Workflow scope.** The strict read-only contract applies to the consumer control plane
+adapter. An existing product workflow is pinned to its base-tree blob digest and must be
+byte-identical; only pre-existing hygiene gaps are downgraded to reported open risks, and
+a forbidden trigger, a consumed secret, a push, an auto-merge or a deploy command remains a
+hard failure in every workflow.
+
+**Instruction boundary.** There is no `.claude/**` allowance. One exact path,
+`.claude/launch.json`, is accepted only when its content validates against a closed schema
+with no field able to carry instruction text. Nested, case-variant, traversal, symlinked
+and unknown `.claude` paths all remain findings.
+
+**First adoption.** A one-time bootstrap contract removes the initial protected-path
+deadlock without forging an approval. It binds to the base commit, the base tree, the
+control plane pin, the repository identity and an exact path set, and it substitutes for
+exactly one approval type on exactly those paths. Replay is prevented structurally: it is
+usable only while the base tree carries no project manifest. It creates no approval record,
+names no reviewer, does not enable auto-merge and does not weaken the human merge decision.

@@ -19,6 +19,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { readJson, matchesAny, runCli, CONTROL_PLANE_DIR } from "./cp-lib.mjs";
+import { isDeclaredProductRuntime, isDeclaredManifestMention } from "./check-product-integrations.mjs";
 
 const BASE64_LITERAL = /[A-Za-z0-9+/]{16,}={0,2}/gu;
 
@@ -50,8 +51,8 @@ export function decodedProbes(content, minLength) {
   return probes;
 }
 
-function ruleApplies(rule, file, policy, isDeclaration) {
-  if (rule.scope === "control-plane" && !matchesAny(file, policy.control_plane_scope)) {
+function ruleApplies(rule, file, policy, isDeclaration, controlPlaneScope) {
+  if (rule.scope === "control-plane" && !matchesAny(file, controlPlaneScope ?? policy.control_plane_scope)) {
     return false;
   }
   if (rule.always_applies === true) {
@@ -74,10 +75,22 @@ export function isDeclarationFile(file, policy) {
  * @param files    tracked, non-binary file list
  * @param readFile (file) => string
  * @param policy   cost-policy.json
+ * @param options  {
+ *   inventory,           exact product runtime declaration lookup (consumer mode)
+ *   controlPlaneScope,   overrides policy.control_plane_scope (consumer mode)
+ *   baseline             array that receives every waived, declared match
+ * }
+ *
+ * With no options this behaves EXACTLY as it did in CP1-A.1: every rule applies
+ * to every file, and nothing is waived. The consumer entry point is the only
+ * caller that supplies an inventory, and an inventory can only ever waive an
+ * exact, enumerated path — never a pattern, never a directory, never a workflow.
  */
-export function paidAiFindings(files, readFile, policy) {
+export function paidAiFindings(files, readFile, policy, options = {}) {
   const rules = (policy.rules ?? []).map((r) => ({ ...r, re: new RegExp(r.pattern, r.flags ?? "u") }));
   const base64 = policy.base64_probe ?? { enabled: false, min_length: 16 };
+  const inventory = options.inventory ?? null;
+  const baseline = options.baseline ?? [];
   const findings = [];
   for (const file of files) {
     const declaration = isDeclarationFile(file, policy);
@@ -85,16 +98,32 @@ export function paidAiFindings(files, readFile, policy) {
     const content = deobfuscate(raw);
     const probes = base64.enabled ? decodedProbes(raw, base64.min_length ?? 16) : [];
     for (const rule of rules) {
-      if (!ruleApplies(rule, file, policy, declaration)) {
+      if (!ruleApplies(rule, file, policy, declaration, options.controlPlaneScope)) {
         continue;
       }
-      if (rule.re.test(content)) {
-        findings.push(`${file}: ${rule.why} [${rule.id}]`);
+      const encoded = rule.id.startsWith("endpoint.") && probes.some((p) => rule.re.test(p));
+      if (!rule.re.test(content) && !encoded) {
         continue;
       }
-      if (rule.id.startsWith("endpoint.") && probes.some((p) => rule.re.test(p))) {
-        findings.push(`${file}: ${rule.why} hidden in an encoded literal [${rule.id}]`);
+      if (
+        inventory !== null &&
+        (isDeclaredProductRuntime(file, rule.id, inventory) ||
+          isDeclaredManifestMention(file, rule, content, inventory))
+      ) {
+        // A declared product runtime path. Recorded, never silent — and note
+        // that an ENCODED match is never waived: a declared integration writes
+        // its endpoint in plain source, so a base64-hidden one is still an
+        // attempt to hide something.
+        if (!encoded) {
+          baseline.push(`${file}: declared product runtime integration [${rule.id}]`);
+          continue;
+        }
       }
+      findings.push(
+        encoded
+          ? `${file}: ${rule.why} hidden in an encoded literal [${rule.id}]`
+          : `${file}: ${rule.why} [${rule.id}]`
+      );
     }
   }
   return findings;

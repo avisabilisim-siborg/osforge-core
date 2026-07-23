@@ -10,7 +10,14 @@
 // files: a tool-specific file can never carry a weaker posture than its sibling.
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { readJson, runCli, CONTROL_PLANE_DIR } from "./cp-lib.mjs";
+import {
+  readJson,
+  runCli,
+  normalizePath,
+  validateAgainstSchema,
+  controlPlaneDirFor,
+  CONTROL_PLANE_DIR
+} from "./cp-lib.mjs";
 
 /** `git ls-files -s -z` records: {mode, path}. Mode 120000 is a symlink. */
 export function trackedEntries(cwd = process.cwd()) {
@@ -31,7 +38,67 @@ export function trackedEntries(cwd = process.cwd()) {
   return entries;
 }
 
-export function instructionFindings(entries, readFile, policy) {
+/**
+ * Decides whether ONE tracked entry under a tool-local instruction directory is
+ * the exact, schema-closed configuration file the policy permits (CP1-A.2, B3).
+ *
+ * This is deliberately not an allowance for `.claude/**`. It is an allowance for a
+ * single, literal path whose CONTENT must validate against a closed schema, so the
+ * file is accepted for what it provably is rather than for what it is called.
+ *
+ * Fail-closed on every axis: a case variant, a nested path, a traversal spelling,
+ * a symlink, unparsable JSON and any field outside the schema are all rejected.
+ *
+ * @returns {{accepted:true, why:string}|{accepted:false, reason:string}|null}
+ *          `null` when the entry is not a declared configuration path at all.
+ */
+export function nonInstructionConfigDecision(entry, readFile, policy, options = {}) {
+  const declarations = policy.non_instruction_config_files ?? [];
+  if (declarations.length === 0) {
+    return null;
+  }
+  // EXACT, case-sensitive, canonicalised comparison. `.Claude/launch.json`,
+  // `.claude/sub/launch.json` and `./.claude/../.claude/launch.json` are all
+  // different strings from the declared one and therefore never match here.
+  const normalised = normalizePath(entry.path);
+  const declaration = declarations.find(
+    (d) => d.path === entry.path && normalised.ok && normalised.path === d.path
+  );
+  if (!declaration) {
+    return null;
+  }
+  if (entry.mode === "120000") {
+    return { accepted: false, reason: `must be a regular file, not a symlink: ${entry.path}` };
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(readFile(entry.path));
+  } catch (err) {
+    return {
+      accepted: false,
+      reason: `declared non-instruction configuration is not valid JSON: ${entry.path} (${err && err.message})`
+    };
+  }
+  const dir = controlPlaneDirFor(options.coreRoot);
+  let schema;
+  try {
+    schema = readJson(`${dir}/schemas/${declaration.schema}.schema.json`);
+  } catch (err) {
+    return { accepted: false, reason: `configuration schema could not be read: ${err && err.message}` };
+  }
+  const schemaErrors = validateAgainstSchema(parsed, schema, entry.path);
+  if (schemaErrors.length > 0) {
+    return {
+      accepted: false,
+      reason:
+        `declared non-instruction configuration does not match its closed schema, so it cannot be proven ` +
+        `free of instruction content: ${schemaErrors.join("; ")}`
+    };
+  }
+  return { accepted: true, why: `${entry.path} (exact non-instruction configuration, ${declaration.schema})` };
+}
+
+export function instructionFindings(entries, readFile, policy, options = {}) {
   const findings = [];
   const canonical = policy.canonical_instruction_files ?? [];
   const allowlist = new Set([...canonical, ...(policy.nested_instruction_allowlist ?? [])]);
@@ -40,7 +107,19 @@ export function instructionFindings(entries, readFile, policy) {
 
   for (const entry of entries) {
     if (dirRe.test(entry.path)) {
-      findings.push(`tool-local instruction directory is tracked and could shadow the root instructions: ${entry.path}`);
+      const decision = nonInstructionConfigDecision(entry, readFile, policy, options);
+      if (decision === null) {
+        findings.push(
+          `tool-local instruction directory is tracked and could shadow the root instructions: ${entry.path}`
+        );
+        continue;
+      }
+      if (decision.accepted !== true) {
+        findings.push(`tool-local instruction directory: ${decision.reason}`);
+        continue;
+      }
+      // Never silent: an accepted exception is announced on every run.
+      console.log(`INSTRUCTION_CONFIG_EXCEPTION ${decision.why}`);
       continue;
     }
     if (!nameRe.test(entry.path)) {
