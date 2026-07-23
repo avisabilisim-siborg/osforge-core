@@ -73,3 +73,45 @@ gh api repos/avisabilisim-siborg/osforge-core/rulesets/18951811
 ```
 
 Re-run it after applying the plan and record the output as audit evidence.
+
+## Consumer-side prerequisites for a first adoption (CP1-A.2)
+
+| # | Prerequisite | Why | If skipped |
+| --- | --- | --- | --- |
+| C1 | The consumer CI adapter checks out with `fetch-depth: 0` | The bootstrap is proven against the BASE TREE; a shallow clone cannot produce it | Validation fails closed with an explicit shallow-clone message |
+| C2 | The consumer repository has an `origin` remote resolving to its exact `owner/repo` on `github.com` | The bootstrap binds to a proven identity, so a fork carrying a copied contract is rejected | The bootstrap is rejected: identity cannot be proven |
+| C3 | Every tracked workflow is classified before the adoption pull request | An unclassified workflow is a finding by design | Adoption is blocked until each workflow is placed in exactly one class |
+| C4 | Existing product workflow digests are taken from the base tree | The baseline proves "unchanged"; a digest taken from a modified file proves nothing | Digest drift is reported and adoption is blocked |
+| C5 | The spent bootstrap is removed in the first follow-up pull request | Replay prevention rejects it from then on | Every later pull request with a change set fails until it is removed |
+
+P7 remains open after CP1-A.2. `.github/workflows/core-ci.yml` is outside this task's
+`allowed_paths` as well, so its action pinning was deliberately not changed here. The
+exception is re-targeted to CP1-A.3 in
+`.osforge/control-plane/policies/workflow-policy.json` and is still printed by
+`check-workflow-permissions.mjs` on every run.
+
+## CP1-A.3 security debt (recorded by the PR #28 audit remediation)
+
+| Item | Exact file | Exact references | Why it matters | Required approach |
+| --- | --- | --- | --- | --- |
+| D1 | `.github/workflows/core-ci.yml` | `actions/checkout@v4` (jobs A–G), `actions/setup-node@v4` (jobs A–G) | A mutable tag can be re-pointed at new code by the action owner or by anyone who compromises that account. Core CI is a **required** status check, so the retagged code would run on every pull request with repository read access. | Pin both to full 40-character commit shas, add `persist-credentials: false`, in a **separate** pull request scoped to `core-ci.yml`. Do not widen an unrelated pull request to cover it. |
+
+D1 is audit finding F4. It is not a regression introduced by PR #28: it predates
+CP1-A.1, and `core-ci.yml` is outside the `allowed_paths` of both CP1-A.1 and
+CP1-A.2. It stays recorded as an exception in
+`.osforge/control-plane/policies/workflow-policy.json` with `expires_with:
+CP1-A.3`, and `check-workflow-permissions.mjs` prints it on every run, so it can
+never become a silent allowance.
+
+## Solo Maintainer Mode — recorded honestly
+
+The repository ruleset is unchanged by this work, including
+`required_approving_review_count: 0` (prerequisite P2 remains open).
+
+- Solo Maintainer Mode is **not** a second independent human review.
+- An approval manifest is a reviewable declaration of intent, **not** a
+  cryptographic proof that a human produced it.
+- Deterministic CI and an independent Opus security audit are **not** substitutes
+  for a second human reviewer.
+- The merge decision belongs to the user. No automation in this repository takes
+  it, and none of the CP1-A.2 additions weakens it.

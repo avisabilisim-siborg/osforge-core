@@ -1,0 +1,110 @@
+{
+  "schema_version": "1.2.0",
+  "control_plane_version": "1.2.0",
+  "task_id": "CP1-A.2",
+  "project": "osforge-core",
+  "repository": "avisabilisim-siborg/osforge-core",
+  "phase_id": "CP1-A.2",
+  "title": "Consumer adoption compatibility and secure bootstrap",
+  "mode": "implement",
+  "risk_level": "HIGH",
+  "base_branch": "main",
+  "working_branch": "feat/control-plane/cp1-a2-adoption-compatibility",
+  "objective": "Resolve the four canonical incompatibilities that blocked the first real consumer adoption, without weakening any boundary: separate the control plane no-paid-AI prohibition from an exactly declared product runtime integration inventory, separate the strict consumer CI contract from digest-pinned existing product workflows, model .claude/launch.json as an exact schema-closed non-instruction configuration, and add a one-time, replay-resistant adoption bootstrap that removes the initial protected-path approval deadlock without forging an approval.",
+  "source_of_truth": [
+    "docs/000_OSFORGE_CONSTITUTION.md",
+    "docs/control-plane/SECURITY_MODEL.md",
+    "docs/control-plane/THREAT_MODEL.md",
+    "docs/control-plane/CONSUMER_INTERFACE.md",
+    "docs/control-plane/CONSUMER_ADOPTION_BOOTSTRAP.md"
+  ],
+  "prerequisites": [
+    "CP1-A.1 merged into main and verified at c654fe1369f29b20e9e923d132b2d7aa90f9e6c9",
+    "no consumer repository change is part of this task"
+  ],
+  "allowed_paths": [
+    ".osforge/control-plane/**",
+    ".osforge/tasks/**",
+    "docs/control-plane/**",
+    ".github/workflows/osforge-control-plane-ci.yml",
+    "tests/control-plane-policy.test.mjs",
+    "tests/control-plane-adversarial.test.mjs",
+    "tests/control-plane-consumer.test.mjs",
+    "tests/control-plane-adoption.test.mjs",
+    "CLAUDE.md",
+    "AGENTS.md"
+  ],
+  "forbidden_paths": [
+    "packages/**",
+    "docs/security/**",
+    "docs/adr/**",
+    "docs/architecture/**",
+    ".github/workflows/core-ci.yml",
+    "package.json",
+    "package-lock.json",
+    "**/migrations/**"
+  ],
+  "allowed_operations": [
+    "read",
+    "write_allowed_paths",
+    "run_tests",
+    "commit",
+    "push",
+    "open_pull_request"
+  ],
+  "forbidden_operations": [
+    "merge",
+    "database_migration",
+    "feature_flag_activation",
+    "secret_change",
+    "deploy",
+    "release",
+    "force_push",
+    "admin_override",
+    "branch_protection_change",
+    "repository_visibility_change",
+    "ruleset_change"
+  ],
+  "required_checks": [
+    "control-plane-validation",
+    "path-policy",
+    "instruction-boundary",
+    "no-paid-ai",
+    "workflow-permissions",
+    "prompt-consistency",
+    "consumer-interface",
+    "typecheck",
+    "tests",
+    "secret-scan",
+    "adoption-bootstrap",
+    "product-runtime-inventory",
+    "workflow-classification"
+  ],
+  "required_evidence": [
+    "full head sha",
+    "ci run id",
+    "changed file list",
+    "local command exit codes"
+  ],
+  "human_approvals": [
+    "merge",
+    "protected_path_change"
+  ],
+  "database_effect": "none",
+  "runtime_effect": "none",
+  "feature_flag_effect": "none",
+  "secret_effect": "none",
+  "deploy_effect": "none",
+  "rollback_strategy": "git revert of the merge commit; every addition is governance data, schemas and read-only validators, so no runtime or data rollback is involved",
+  "out_of_scope": [
+    "Glowia / SalonLumi repository changes (CP1-B)",
+    "K1-B2 implementation (CP1-C)",
+    "repository ruleset and branch protection changes",
+    "product runtime wiring, migrations, deploys and releases",
+    "pinning actions in .github/workflows/core-ci.yml (tracked as repository prerequisite P7)"
+  ],
+  "max_remediation_loops": 0,
+  "paid_ai_allowed": false,
+  "created_by": "human-operator",
+  "created_at": "2026-07-23T12:00:00.000Z"
+}

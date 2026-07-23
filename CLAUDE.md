@@ -79,3 +79,35 @@ makine tarafindan okunabilir listenin aynisidir ve
   aktorleri, linear history) **repository ayaridir** ve bu kod tarafindan uygulanamaz.
   Gercek durum ve gereken insan islemleri:
   `docs/control-plane/REPOSITORY_PREREQUISITES.md`.
+
+## Consumer adoption uyumlulugu (CP1-A.2)
+
+Asagidaki dort istisna, gercek urun gecmisi olan bir repository'nin adoption
+yapabilmesi icindir. Hicbiri yukaridaki invariant'lari zayiflatmaz. Tam gerekce:
+`docs/control-plane/CONSUMER_ADOPTION_BOOTSTRAP.md`.
+
+- Consumer URUN kendi runtime'inda ucretli model cagirabilir. Bu olgu
+  `product_runtime_integrations` icinde, dosya dosya sayilarak, exact envanter olarak
+  kaydedilebilir. Bu bir envanterdir, izin degildir: Control Plane'e ve CI'a hicbir
+  yetki vermez, `.osforge/**` ve `.github/**` alanlarini asla kapsayamaz ve CP-INV-08
+  degismez. Control Plane hala ucretli model API kullanmaz, istemez, yapilandirmaz.
+- Yalnizca credential ortam degiskeninin ADI kaydedilir. Hicbir validator degerini
+  okumaz, cozmez, iletmez veya loglar; anahtar materyali tasiyan manifest, eslesen metin
+  hicbir yere yazilmadan reddedilir.
+- Consumer'in mevcut urun workflow'lari, consumer control plane adapter'indan ayri
+  siniflandirilir ve base-tree blob digest'ine sabitlenir. Baseline olmak, workflow'un
+  DEGISMEDIGINI kanitlar; ne yaptigini asla mazur gostermez. Yasak trigger, secret
+  kullanimi, push, auto-merge veya deploy komutu her workflow'da fail-closed kalir.
+- `.claude/**` icin genel izin yoktur. Yalnizca tek bir yol, `.claude/launch.json`,
+  kabul edilebilir ve yalnizca icerigi, talimat metni tasiyabilecek hicbir alani olmayan
+  kapali bir sema ile dogrulandiginda. CP-INV-15 degismez: nested, buyuk/kucuk harf
+  varyanti, traversal, symlink ve bilinmeyen `.claude` yollari bulgu olarak kalir.
+- Ilk adoption tek kullanimlik bir `.osforge/adoption-bootstrap.json` tasiyabilir. Bu
+  sozlesme yalnizca tek bir onay turunun (`protected_path_change`) yerine gecer ve
+  yalnizca kendi sayidigi yollarda; base commit'e, base tree'ye, control plane pin'ine ve
+  kanitlanmis repository kimligine baglidir. Sahte onay uretmez, reviewer adi vermez.
+  Yalnizca base tree'de project manifest yokken kullanilabilir, bu yuzden tekrar
+  oynatilamaz. CP-INV-06, CP-INV-07, CP-INV-13 ve CP-INV-14 degismez; insan merge karari
+  yerinde durur.
+- Henuz var olmayan bir commit icin asla approval kaydi uretme. Bir kapi durustce
+  gecilemiyorsa dur ve raporla (CP-INV-03).

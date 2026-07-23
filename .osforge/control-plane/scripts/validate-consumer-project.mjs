@@ -22,7 +22,12 @@ import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 import { readJson, runCli, controlPlaneDirFor } from "./cp-lib.mjs";
-import { validateManifest, FULL_COMMIT_SHA, commitPinErrors } from "./validate-manifest.mjs";
+import {
+  validateManifest,
+  approvalRejections,
+  FULL_COMMIT_SHA,
+  commitPinErrors
+} from "./validate-manifest.mjs";
 import {
   changedPathsFromGit,
   checkProjectPathPolicy,
@@ -37,9 +42,16 @@ import {
 } from "./check-workflow-permissions.mjs";
 import { instructionFindings, trackedEntries } from "./check-instruction-boundary.mjs";
 import { resolveRepoRoot, resolveInsideRepo, headCommit, commitExists } from "./repo-root.mjs";
+import {
+  buildIntegrationInventory,
+  productIntegrationFindings,
+  workflowClassificationFindings
+} from "./check-product-integrations.mjs";
+import { checkAdoptionBootstrap, DEFAULT_BOOTSTRAP_PATH } from "./check-adoption-bootstrap.mjs";
 
 export const DEFAULT_PROJECT_PATH = ".osforge/project.json";
 export const DEFAULT_VERSION_LOCK_PATH = ".osforge/control-plane.lock.json";
+export { DEFAULT_BOOTSTRAP_PATH };
 
 /** Directory fields of a project manifest and the manifest kind each one holds. */
 export const PROJECT_DIRECTORY_KINDS = {
@@ -382,6 +394,9 @@ export function validateConsumerProject(options = {}) {
 
   // 8. Human gates, at declaration level, for every task the project declares.
   const gates = readJson(join(controlPlane, "policies/human-gates.json"));
+  /** Approvals that are well-formed. NOTHING may rely on these until they bind. */
+  const candidateApprovals = [];
+  /** Approvals proven to be about this repository, this head sha and this moment. */
   const approvals = [];
   for (const relative of options.approvals ?? []) {
     const resolved = resolveInsideRepo(repoRoot, relative);
@@ -397,8 +412,49 @@ export function validateConsumerProject(options = {}) {
     const found = validateManifest("approval", approval, { coreRoot });
     errors.push(...found.map((e) => `${resolved.relative}: ${e}`));
     if (found.length === 0) {
-      approvals.push(approval);
+      candidateApprovals.push({ relative: resolved.relative, approval });
     }
+  }
+
+  // 8a. BIND every supplied approval before anything may rely on it (CP1-A.2
+  //     audit F2, inherited from CP1-A.1).
+  //
+  //     `validateManifest` only proves an approval is well-formed. It does not
+  //     prove the approval is about THIS repository, THIS head sha, THIS pull
+  //     request, or that it has not expired. Until now nothing else did either,
+  //     so a well-formed record copied from another repository — or written for a
+  //     sha that was reviewed months ago, or already expired — satisfied the
+  //     protected-path, migration and production gates for any change set.
+  //
+  //     Binding is mandatory: an approval that cannot be bound is rejected, and
+  //     the reason is reported rather than the record being quietly dropped.
+  const approvalClock = options.now ?? new Date().toISOString();
+  if (candidateApprovals.length > 0) {
+    console.log(
+      `CONSUMER_APPROVAL_BINDING repository=${project.repository} head=${options.head ?? "<none>"} ` +
+        `pull_request=${options.pullRequest ?? "<unbound>"} now=${approvalClock}` +
+        `${options.now ? "" : " (validator clock; pass --now for a reproducible evaluation)"}`
+    );
+  }
+  for (const { relative, approval } of candidateApprovals) {
+    if (!options.head) {
+      errors.push(
+        `${relative}: an approval record was supplied but no --head sha was given: ` +
+          "an approval is only ever valid for one exact head sha, so it cannot be evaluated and is refused"
+      );
+      continue;
+    }
+    const rejections = approvalRejections(approval, {
+      repository: project.repository,
+      targetSha: options.head,
+      pullRequest: options.pullRequest,
+      nowIso: approvalClock
+    });
+    if (rejections.length > 0) {
+      errors.push(`${relative}: approval is not usable: ${rejections.join("; ")}`);
+      continue;
+    }
+    approvals.push(approval);
   }
   for (const task of tasks) {
     const context = {};
@@ -416,25 +472,81 @@ export function validateConsumerProject(options = {}) {
 
   // 9. Instruction boundary inside the consumer repository.
   const instructionPolicy = readJson(join(controlPlane, "policies/instruction-policy.json"));
-  errors.push(...instructionFindings(trackedEntries(repoRoot), readConsumer, instructionPolicy));
+  // `coreRoot` matters here: the configuration schema that decides whether a
+  // declared non-instruction file is acceptable lives in the PINNED control plane
+  // checkout, not in the consumer repository and not in the process working
+  // directory. Resolving it anywhere else would fail closed on a valid consumer.
+  errors.push(...instructionFindings(trackedEntries(repoRoot), readConsumer, instructionPolicy, { coreRoot }));
 
-  // 10. Subscription-only scan across the consumer repository.
+  // 10. Workflow classification (CP1-A.2). This runs BEFORE the subscription-only
+  //     scan because it decides which workflows are control plane surface.
+  const workflowPolicy = readJson(join(controlPlane, "policies/workflow-policy.json"));
+  const workflows = trackedWorkflows(repoRoot);
+  const openRisks = [];
+  // The change set is read once, here, so the classifier can prove that a claimed
+  // baseline is absent from it (a rename, a copy or a delete-and-recreate of the
+  // same bytes is still a change at that path).
+  const changeSet =
+    options.base && options.head ? changedPathsFromGit(options.base, options.head, repoRoot) : null;
+  let classified = { findings: [], controlPlaneWorkflows: workflows, baselineWorkflows: [] };
+  if (workflows.length === 0) {
+    errors.push("consumer repository declares no workflow: the control plane cannot be enforced in CI");
+  } else {
+    classified = workflowClassificationFindings(project, workflows, readConsumer, {
+      repoRoot,
+      baseSha: options.base ?? null,
+      changes: changeSet,
+      risks: openRisks
+    });
+    errors.push(...classified.findings);
+  }
+
+  // 11. Subscription-only scan across the consumer repository.
+  //
+  //     Two consumer-specific adjustments, both narrowing rather than widening:
+  //     the control-plane-scope rules follow the DECLARED control plane workflows
+  //     instead of every workflow the product happens to own, and an exactly
+  //     declared product runtime path may waive an exactly declared rule. The
+  //     scope-'all' rules — paid model endpoint, paid model SDK, model-invoking
+  //     action, paid_ai_allowed — still apply to every file including workflows.
   const costPolicy = readJson(join(controlPlane, "policies/cost-policy.json"));
+  const inventory = buildIntegrationInventory(project, costPolicy, projectFile.relative);
+  errors.push(
+    ...productIntegrationFindings(project, costPolicy, readConsumer, (rel) => {
+      const resolved = resolveInsideRepo(repoRoot, rel);
+      return resolved.ok && existsSync(resolved.absolute);
+    })
+  );
+  // The narrowed control-plane scope is a privilege the classification earns. If
+  // the classification produced ANY finding, the classifier already withdrew it
+  // (`controlPlaneWorkflows` becomes every workflow), so the scan falls back to
+  // treating every workflow as control plane surface.
+  const controlPlaneScope =
+    project.workflow_classification && classified.findings.length === 0
+      ? [".osforge/**", ...classified.controlPlaneWorkflows]
+      : undefined;
   const scanned = trackedTextFiles(costPolicy, repoRoot);
   if (scanned.files.length === 0) {
     errors.push("consumer repository exposes no scannable file: refusing to report success without evidence");
   } else {
+    const baseline = [];
     console.log(`CONSUMER_NO_PAID_AI_SCOPE ${scanned.files.length} file(s), ${scanned.skipped.length} skipped`);
-    errors.push(...paidAiFindings(scanned.files, readConsumer, costPolicy));
+    errors.push(
+      ...paidAiFindings(scanned.files, readConsumer, costPolicy, { inventory, controlPlaneScope, baseline })
+    );
+    for (const entry of baseline) {
+      console.log(`CONSUMER_PRODUCT_RUNTIME_BASELINE ${entry}`);
+    }
   }
 
-  // 11-12. Workflow permissions, plus the consumer CI pin contract on the adapter.
-  const workflowPolicy = readJson(join(controlPlane, "policies/workflow-policy.json"));
-  const workflows = trackedWorkflows(repoRoot);
-  if (workflows.length === 0) {
-    errors.push("consumer repository declares no workflow: the control plane cannot be enforced in CI");
-  } else {
-    errors.push(...workflowFindings(workflows, readConsumer, workflowPolicy));
+  // 12-13. Workflow permissions, plus the consumer CI pin contract on the adapter.
+  if (workflows.length > 0) {
+    errors.push(
+      ...workflowFindings(workflows, readConsumer, workflowPolicy, {
+        baselineExemptions: classified.baselineWorkflows,
+        risks: openRisks
+      })
+    );
     const adapters = workflows.filter((f) => readConsumer(f).includes(ADAPTER_MARKER));
     if (adapters.length === 0) {
       errors.push("no consumer control plane CI adapter workflow found: the canonical validator is never executed");
@@ -448,7 +560,55 @@ export function validateConsumerProject(options = {}) {
     }
   }
 
-  // 13. The real change set, when the caller supplies one.
+  // 14. The one-time adoption bootstrap, when the consumer carries one.
+  const bootstrapPath = options.bootstrap ?? DEFAULT_BOOTSTRAP_PATH;
+  const bootstrapFile = resolveInsideRepo(repoRoot, bootstrapPath);
+  let bootstrapAllowedPaths = null;
+  if (!bootstrapFile.ok) {
+    errors.push(`adoption bootstrap path is unsafe (${bootstrapFile.reason})`);
+  } else if (options.bootstrap && !existsSync(bootstrapFile.absolute)) {
+    errors.push(`declared adoption bootstrap contract does not exist: ${bootstrapFile.relative}`);
+  } else if (existsSync(bootstrapFile.absolute) && !(options.base && options.head)) {
+    // No change set, so no path policy decision is taken in this run and the
+    // bootstrap authorises literally nothing. It is announced rather than
+    // evaluated: judging a contract about a diff without the diff would be the
+    // partial validation this plane refuses to report.
+    openRisks.push(
+      `an adoption bootstrap contract is present at ${bootstrapFile.relative} but this run has no base/head change set, ` +
+        "so it was not evaluated and authorised nothing"
+    );
+  } else if (existsSync(bootstrapFile.absolute)) {
+    console.log(`CONSUMER_BOOTSTRAP_PRESENT ${bootstrapFile.relative}`);
+    const contract = readJson(bootstrapFile.absolute);
+    const contractErrors = validateManifest("adoption-bootstrap", contract, { coreRoot });
+    errors.push(...contractErrors.map((e) => `${bootstrapFile.relative}: ${e}`));
+    if (contractErrors.length === 0) {
+      const adoptionPolicy = readJson(join(controlPlane, "policies/adoption-policy.json"));
+      const bootstrapErrors = checkAdoptionBootstrap(contract, {
+        repoRoot,
+        project,
+        projectPath: projectFile.relative,
+        versionLockPath: lockPath,
+        bootstrapPath: bootstrapFile.relative,
+        baseSha: options.base ?? null,
+        changes: options.base && options.head ? changedPathsFromGit(options.base, options.head, repoRoot) : null,
+        adoptionPolicy,
+        projectPolicy,
+        consumerIdentity: remoteIdentity(repoRoot),
+        coreHead: headCommit(coreRoot)
+      });
+      errors.push(...bootstrapErrors.map((e) => `${bootstrapFile.relative}: ${e}`));
+      if (bootstrapErrors.length === 0) {
+        bootstrapAllowedPaths = contract.allowed_changed_paths;
+        console.log(
+          `CONSUMER_BOOTSTRAP_ACTIVE base ${contract.base_commit}, ${bootstrapAllowedPaths.length} enumerated path(s); ` +
+            "stands in for 'protected_path_change' on those paths only; the human merge decision is unchanged"
+        );
+      }
+    }
+  }
+
+  // 15. The real change set, when the caller supplies one.
   if (options.base && options.head) {
     if (projectPolicy === null) {
       errors.push("a change set was supplied but the project path policy is invalid: refusing to evaluate it");
@@ -458,11 +618,14 @@ export function validateConsumerProject(options = {}) {
         errors.push("empty change set: refusing to report success without evidence");
       } else {
         console.log(`CONSUMER_PATH_POLICY_SCOPE ${changes.length} path record(s)`);
-        errors.push(...checkProjectPathPolicy(projectPolicy, changes, approvals));
+        errors.push(...checkProjectPathPolicy(projectPolicy, changes, approvals, { bootstrapAllowedPaths }));
       }
     }
   }
 
+  for (const risk of openRisks) {
+    console.log(`CONSUMER_OPEN_RISK ${risk}`);
+  }
   return errors;
 }
 
@@ -472,6 +635,7 @@ function parseArgs(argv) {
     coreRoot: null,
     project: null,
     versionLock: null,
+    bootstrap: null,
     base: null,
     head: null,
     now: null,
@@ -484,6 +648,7 @@ function parseArgs(argv) {
     else if (a === "--core-root") args.coreRoot = argv[++i];
     else if (a === "--project") args.project = argv[++i];
     else if (a === "--version-lock") args.versionLock = argv[++i];
+    else if (a === "--bootstrap") args.bootstrap = argv[++i];
     else if (a === "--base") args.base = argv[++i];
     else if (a === "--head") args.head = argv[++i];
     else if (a === "--now") args.now = argv[++i];
@@ -500,8 +665,8 @@ if (process.argv[1] && process.argv[1].endsWith("validate-consumer-project.mjs")
     if (!args.repoRoot || !args.coreRoot) {
       throw new Error(
         "usage: validate-consumer-project.mjs --repo-root <absolute-path> --core-root <absolute-path> " +
-          "[--project <relative>] [--version-lock <relative>] [--base <sha> --head <sha>] [--approval <relative>]... " +
-          "[--now <iso>] [--pull-request <n>]"
+          "[--project <relative>] [--version-lock <relative>] [--bootstrap <relative>] " +
+          "[--base <sha> --head <sha>] [--approval <relative>]... [--now <iso>] [--pull-request <n>]"
       );
     }
     console.log(`CONSUMER_PROJECT_MODE explicit roots (no working-directory fallback)`);

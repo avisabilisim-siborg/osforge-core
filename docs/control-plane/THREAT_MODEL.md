@@ -45,3 +45,44 @@ The control plane narrows what an agent can do and makes it reviewable. It does 
 replace branch protection, least-privilege platform permissions or human judgement, and
 in this repository the merge gate itself is still an open prerequisite. All critical
 authority stays with the human operator.
+
+## CP1-A.2 consumer adoption threats
+
+| # | Threat | Impact | Control | Residual risk | Human gate |
+| --- | --- | --- | --- | --- | --- |
+| 30 | Undeclared paid model call in a consumer product | Cost and data exfiltration nobody reviewed | Only exactly enumerated paths are waived; every other file still fails closed | A provider unknown to every rule | Adoption review |
+| 31 | Product runtime declaration used as control plane permission | Control plane gains paid-model capability | The declarable surface excludes `.osforge/**` and `.github/**` entirely; the two sets are disjoint | — | Independent audit |
+| 32 | Endpoint drift inside a declared path | Traffic redirected to another provider | Every paid-model host in a declared runtime file must equal the declared host | Runtime-resolved hosts are invisible to a source scan | Adoption review |
+| 33 | Secret reference drift | A different credential silently used | Every credential name in a declared file must equal the declared reference | — | Adoption review |
+| 34 | Secret value smuggled into a manifest | Credential committed and logged | Key-material shapes are rejected, and the matched text is never echoed | A value in a shape nobody listed | Secret scan |
+| 35 | Encoded endpoint inside a declared path | Hidden egress passes as data | A base64-hidden endpoint is never waived, declared path or not | — | Independent audit |
+| 36 | Baseline claimed for a changed workflow | New CI behaviour merged unreviewed | The base-tree blob digest must match both the base tree and the working tree | — | Workflow review |
+| 37 | New workflow presented as an existing baseline | Unreviewed workflow gains the lenient class | A classified workflow absent from the base tree is a finding; an unclassified workflow is a finding | — | Workflow review |
+| 38 | Product workflow masquerading as the control plane adapter | Strict contract evaded | The canonical validator marker must be present in the adapter class and absent from the others; classes may not overlap | — | Workflow review |
+| 39 | Baseline used to excuse a live danger | Forbidden trigger or secret use forgiven | Only pre-existing hygiene classes are downgraded, and each one is printed as an open risk | Unfixed baseline risks stay real | Workflow review |
+| 40 | Instruction smuggled into `.claude/launch.json` | Root security posture shadowed | Accepted only against a closed schema with no instruction-capable field | — | Instruction review |
+| 41 | `.claude` allowance widened | Nested instruction shadowing returns | The allowance is a list of exact paths; globs are rejected by control plane self-validation | — | Independent audit |
+| 42 | Bootstrap replayed on a later pull request | Protected paths editable without approval | A bootstrap is usable only while the base tree carries no project manifest and no version lock | — | Merge review |
+| 43 | Bootstrap moved to another repository or base | Approval reused across contexts | Identity is proven from git remotes; base commit, control plane pin and phase are all exact | Identity proof depends on the remote configuration of the checkout | Merge review |
+| 44 | Bootstrap widened to product code | Unreviewed product change merged as governance | Allowlist-only artefact classification plus a denylist, plus exact path-set equality with the real diff | — | Merge review |
+| 45 | Bootstrap used as a migration or deploy approval | Gated operation performed without its own approval | The bootstrap grants exactly one approval type; migration, secret, production and deploy classes are untouched | — | Their own approvals |
+| 46 | Shallow clone hides the base tree | Replay prevention silently skipped | A base commit missing from history fails closed with an explicit message | — | CI configuration |
+| 47 | Spent bootstrap left in the repository | Stale contract lingering | Every later pull request with a change set fails until it is removed | Requires an explicit cleanup pull request | Operator discipline |
+
+Threat 47 is a deliberate usability cost. The alternative — silently ignoring a spent
+contract — would make the difference between "adopted" and "adopting" invisible.
+
+## PR #28 independent audit remediation
+
+| # | Threat | Impact | Control | Residual risk | Human gate |
+| --- | --- | --- | --- | --- | --- |
+| 48 | Baseline claimed with no base proof | A brand-new privileged workflow is accepted as "existing" and exempted from the permission and pin contract | Base commit is mandatory for any baseline claim; the base tree must carry the exact declared blob | A base tree an attacker also controls | Merge review |
+| 49 | Baseline claimed for a symlink or a gitlink | Content proof evaded via an indirection | The index mode must be `100644` or `100755` | — | Workflow review |
+| 50 | Baseline preserved across a rename, copy or delete-and-recreate | An unreviewed workflow appears at a reviewed path | The path must exist in the base tree AND be absent from the change set | — | Workflow review |
+| 51 | Partial trust after a failed classification | A clean entry keeps its exemption while its neighbour is rejected | One finding withdraws every exemption and the narrowed egress scope | — | Merge review |
+| 52 | Validator exception read as success | A crash inside the lenient path passes the run | The classifier is wrapped: any exception is a finding and every leniency is withdrawn; the CLI wrapper also exits non-zero | — | CI review |
+| 53 | Approval reused across repositories | A record from another project unlocks protected paths here | Approvals bind `target_repository` before use | Approval is a declaration, not authentication — prerequisite P2 | Required review |
+| 54 | Approval reused across shas | Code nobody approved is merged under an old approval | Approvals bind the exact `--head` sha; no head means the approval is refused | — | Required review |
+| 55 | Expired approval still honoured | An approval outlives its review | Expiry and clock skew are enforced at binding time | Clock manipulation on the operator machine | Approval hygiene |
+| 56 | Natural-language payload in a launch config | Root instructions shadowed through an accepted config file | Bounded alphabets exclude whitespace and shell metacharacters in `name` and `runtimeArgs`; item counts are bounded and enforced | — | Instruction review |
+| 57 | Declared schema bound not enforced | A stated limit that the validator ignores reads as protection | `maxItems` is implemented in the schema validator and directly tested | Other unimplemented keywords, if ever declared | Independent audit |

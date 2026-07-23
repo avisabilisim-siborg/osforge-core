@@ -126,3 +126,94 @@ agree on that list; a mismatch is a finding.
 Adoption does not change product behaviour, does not enable any runtime feature, does not
 apply a database migration and does not deploy anything. It only makes the way work is
 requested, bounded, audited and approved explicit and machine-checkable.
+
+## Adopting a repository that already has a product (CP1-A.2)
+
+A repository with real history usually cannot satisfy the checklist above on the first
+try, and in every case observed so far the reason was not that the repository was unsafe.
+It was that the canonical plane could not express a legitimate product fact. CP1-A.2 adds
+four narrow ways to express those facts. Each one is exact, each one is fail-closed, and
+the full reasoning for each is in `CONSUMER_ADOPTION_BOOTSTRAP.md`.
+
+### 10. Declare an existing product runtime AI integration, if there is one
+
+If the product's own service calls a paid model at runtime, add
+`product_runtime_integrations` to the project manifest and enumerate the exact files —
+`runtime_source_paths` for the files that make the call, `reference_paths` for the files
+that only name the credential variable. Provider and endpoint host are exact and must
+agree. Record the environment variable NAME, never a value.
+
+This is an inventory, not permission. It grants the control plane and CI nothing, it can
+never cover `.osforge/**` or `.github/**`, and `paid_ai_allowed` stays false everywhere.
+
+### 11. Classify every workflow
+
+Add `workflow_classification` and place each tracked workflow in exactly one class: the
+consumer control plane adapter, an existing product workflow, or a deploy/production
+workflow. Every workflow in the last two classes carries a `base_tree_digest` — the git
+blob object name — and must be byte-identical to the base tree. An unclassified workflow
+is a finding, and a changed one is a finding.
+
+Pre-existing hygiene gaps in a proven-unchanged product workflow (no permissions block, a
+mutable action tag) are reported as `CONSUMER_OPEN_RISK` rather than silently accepted.
+They are real work; they are simply not adoption blockers.
+
+### 12. Extend `allowed_paths` for the adoption artefacts
+
+The governance artefacts live outside the default template's `allowed_paths`. A consumer
+whose adoption touches `.github/workflows/**`, `CLAUDE.md` and `AGENTS.md` must list them
+in its project path policy `allowed_paths`. They remain protected paths; being allowed and
+being protected are different questions.
+
+### 13. Write the one-time adoption bootstrap
+
+Create `.osforge/adoption-bootstrap.json` from
+`.osforge/control-plane/templates/adoption-bootstrap.template.json`. Fill in the consumer
+repository, the default branch, the exact base commit the pull request is opened against,
+the exact osforge-core pin, and the exact list of files the pull request changes.
+
+The change set and the enumerated list must match exactly — not a subset, not a superset.
+Every path must be a canonical adoption artefact. No product file, lockfile, migration,
+secret, deploy workflow or existing product workflow can be in it.
+
+The CI adapter needs `fetch-depth: 0` so the base commit is present; a shallow clone
+cannot prove the base tree and fails closed.
+
+### 14. After the merge, remove the bootstrap
+
+The bootstrap is spent the moment the adoption pull request merges. Delete
+`.osforge/adoption-bootstrap.json` in the first follow-up pull request. Until it is
+removed, any pull request with a change set fails with an explicit "this repository is
+already adopted" finding — that is the replay prevention working as designed. From then on
+every protected path change needs an ordinary human approval bound to the exact head sha,
+exactly as before.
+
+### 15. Every validation run must carry a base and a head
+
+A workflow baseline is a claim that a file is **unchanged**, and "unchanged" can
+only be proven against a base tree. The canonical validator therefore refuses to
+grant a baseline when no base commit is supplied.
+
+The shipped CI adapter resolves the range for you: it uses the pull request base
+and head on `pull_request`, and `HEAD^`/`HEAD` on `push` and `workflow_dispatch`.
+Two consequences for a consumer:
+
+- Keep `fetch-depth: 0` on the consumer checkout. A shallow clone cannot produce
+  the base tree, and the run fails closed rather than assuming.
+- If you invoke the validator yourself, always pass `--base` and `--head`.
+
+A consumer that declares no `existing_product_workflows` and no
+`deploy_or_production_workflows` is unaffected, and so is a CP1-A.1 consumer with
+no `workflow_classification` at all.
+
+### 16. Supplying an approval record
+
+An approval is bound to one repository, one exact head sha, one pull request and
+one expiry window. When you pass `--approval`, also pass `--head` (and
+`--pull-request` if the record names one); without a head the approval cannot be
+evaluated and is refused.
+
+Because the record names the head it approves, write it for the head you are
+actually approving. An approval whose repository, sha, pull request or expiry does
+not match is reported as unusable and the gate it was meant to satisfy stays
+closed.

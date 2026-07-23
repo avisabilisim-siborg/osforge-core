@@ -1,5 +1,5 @@
 {
-  "schema_version": "1.1.0",
+  "schema_version": "1.2.0",
   "task_id": "EXAMPLE-TASK-001",
   "repository": "avisabilisim-siborg/osforge-core",
   "pull_request": 1,

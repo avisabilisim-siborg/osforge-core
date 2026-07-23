@@ -1,0 +1,94 @@
+{
+  "policy_id": "osforge.control-plane.adoption",
+  "control_plane_version": "1.2.0",
+  "description": "One-time consumer adoption bootstrap (CP1-A.2). The FIRST adoption pull request of a repository must create the canonical governance artefacts, and every one of those artefacts lives on a protected path. The ordinary contract requires a human approval bound to the exact head sha, but the head sha does not exist before the commit exists. Rather than invent a future sha or fabricate an approval, the first adoption is bound to facts that already exist: the base commit, the base TREE, the exact control plane pin, the consumer repository identity and an exact, enumerated path set. Everything here is additive; nothing weakens the ordinary post-adoption model.",
+
+  "bootstrap": {
+    "default_contract_path": ".osforge/adoption-bootstrap.json",
+    "single_use": true,
+    "grants": ["protected_path_change"],
+    "grants_note": "The bootstrap substitutes for exactly ONE approval type, on exactly the paths it enumerates, on exactly one base commit, in exactly one repository. It is not a general approval and it is not an approval record.",
+    "never_grants": [
+      "merge",
+      "implementation",
+      "database_migration",
+      "feature_flag_activation",
+      "secret_change",
+      "deploy",
+      "release",
+      "production_change",
+      "rollback"
+    ],
+    "never_grants_note": "Migration, secret, production and deploy classes stay unreachable during bootstrap: they still require their own, separate, sha-bound human approval. The GitHub human merge review is untouched — the bootstrap governs what MAY be proposed, never what gets merged.",
+    "replay_prevention": {
+      "strategy": "base-tree-manifest-absence",
+      "note": "A bootstrap is only usable while the BASE tree carries no valid project manifest. Once the first adoption pull request is merged, the manifest is on the default branch, so every later pull request has it in its base tree and every later bootstrap is rejected. Replay needs no counter, no state file and no trust in the consumer: the proof is the base tree itself."
+    },
+    "requires": [
+      "an explicit base commit and head commit change set",
+      "a base commit that exists in the consumer repository history",
+      "a consumer repository identity proven from its git remotes",
+      "an exact 40-character control plane pin equal to the validated checkout"
+    ]
+  },
+
+  "adoption_artifact_patterns": [
+    ".osforge/project.json",
+    ".osforge/control-plane.lock.json",
+    ".osforge/adoption-bootstrap.json",
+    ".osforge/policies/**",
+    ".osforge/tasks/**",
+    ".osforge/audits/**",
+    ".osforge/approvals/**",
+    ".osforge/state/**",
+    ".github/workflows/osforge-consumer-control-plane.yml",
+    "CLAUDE.md",
+    "AGENTS.md",
+    "docs/osforge/**"
+  ],
+  "adoption_artifact_note": "Allowlist-only, by design. A path that is not matched here is rejected without needing to be named in a denylist, so a product file, a lockfile, a Dockerfile or a new framework directory can never enter a bootstrap change set merely because nobody thought to forbid it. The single workflow entry is an EXACT path: an existing product workflow can never be edited under bootstrap.",
+
+  "forbidden_bootstrap_patterns": [
+    "package.json",
+    "package-lock.json",
+    "**/package.json",
+    "**/package-lock.json",
+    "**/yarn.lock",
+    "**/pnpm-lock.yaml",
+    "**/Dockerfile*",
+    "**/*.sql",
+    "**/prisma/**",
+    "**/migrations/**",
+    "**/migration/**",
+    ".env",
+    ".env.*",
+    "**/.env",
+    "**/.env.*"
+  ],
+  "forbidden_bootstrap_patterns_note": "Defence in depth behind the allowlist. These are the classes whose accidental inclusion would be most damaging (dependency change, migration, secret material), so they are rejected a second time even though the allowlist already excludes them.",
+
+  "forbidden_bootstrap_path_categories": [
+    "product_runtime_code",
+    "user_interface",
+    "api_endpoint",
+    "authentication_or_otp",
+    "database_schema_or_migration",
+    "environment_or_secret",
+    "feature_flag",
+    "deploy_or_release_workflow",
+    "production_configuration",
+    "existing_product_workflow",
+    "package_dependency"
+  ],
+
+  "required_assertions": [
+    "no_product_code_change",
+    "no_runtime_or_auth_change",
+    "no_database_or_migration_change",
+    "no_secret_change",
+    "no_feature_flag_activation",
+    "no_deploy_release_or_production_change",
+    "human_merge_decision_required"
+  ],
+  "required_assertions_note": "Declared assertions are cross-checked against the REAL diff. A contract that asserts 'no product code change' while the diff carries one is rejected; the assertion is a reviewable statement, never the evidence."
+}

@@ -1,0 +1,68 @@
+{
+  "$id": "osforge.control-plane.adoption-bootstrap",
+  "title": "OSForge Control Plane one-time consumer adoption bootstrap contract",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "control_plane_version", "kind", "single_use",
+    "consumer_repository", "consumer_default_branch", "base_commit",
+    "control_plane_repository", "control_plane_commit", "adoption_phase",
+    "allowed_changed_paths", "forbidden_path_categories",
+    "user_owned_untracked_paths", "assertions", "created_by", "created_at"
+  ],
+  "properties": {
+    "schema_version": { "type": "string", "minLength": 1, "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+    "control_plane_version": { "type": "string", "minLength": 1, "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+    "kind": { "type": "string", "const": "adoption-bootstrap" },
+    "single_use": { "type": "boolean", "const": true },
+
+    "consumer_repository": { "type": "string", "pattern": "^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$" },
+    "consumer_default_branch": { "type": "string", "minLength": 1, "pattern": "^[A-Za-z0-9._/-]{1,120}$" },
+    "base_commit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+
+    "control_plane_repository": { "type": "string", "pattern": "^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$" },
+    "control_plane_commit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "adoption_phase": { "type": "string", "pattern": "^CP[0-9]+-[A-Z](\\.[0-9]+)?$" },
+
+    "allowed_changed_paths": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1, "pattern": "^[^*?\\\\\\u0000-\\u001f\\u007f]+$" }
+    },
+    "forbidden_path_categories": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "user_owned_untracked_paths": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
+
+    "assertions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "no_product_code_change", "no_runtime_or_auth_change",
+        "no_database_or_migration_change", "no_secret_change",
+        "no_feature_flag_activation", "no_deploy_release_or_production_change",
+        "human_merge_decision_required"
+      ],
+      "properties": {
+        "no_product_code_change": { "type": "boolean", "const": true },
+        "no_runtime_or_auth_change": { "type": "boolean", "const": true },
+        "no_database_or_migration_change": { "type": "boolean", "const": true },
+        "no_secret_change": { "type": "boolean", "const": true },
+        "no_feature_flag_activation": { "type": "boolean", "const": true },
+        "no_deploy_release_or_production_change": { "type": "boolean", "const": true },
+        "human_merge_decision_required": { "type": "boolean", "const": true }
+      }
+    },
+
+    "created_by": { "type": "string", "minLength": 1, "pattern": "^[^\\u0000-\\u001f\\u007f]{1,120}$" },
+    "created_at": { "type": "string", "format": "date-time" }
+  }
+}

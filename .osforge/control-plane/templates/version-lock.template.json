@@ -1,6 +1,6 @@
 {
-  "schema_version": "1.1.0",
-  "control_plane_version": "1.1.0",
+  "schema_version": "1.2.0",
+  "control_plane_version": "1.2.0",
   "kind": "version-lock",
   "control_plane_repository": "avisabilisim-siborg/osforge-core",
   "control_plane_commit": "0000000000000000000000000000000000000000",

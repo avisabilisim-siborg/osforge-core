@@ -1,6 +1,6 @@
 {
   "policy_id": "osforge.control-plane.path",
-  "control_plane_version": "1.1.0",
+  "control_plane_version": "1.2.0",
   "description": "Canonical default path policy. Every class below is enforced by check-path-policy.mjs after the changed path has been canonicalised, and every class is matched case-insensitively. Consumer repositories extend these classes and never weaken them.",
   "class_precedence": [
     "always_forbidden_paths",

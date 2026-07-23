@@ -50,6 +50,7 @@ jobs:
           node .osforge/control-plane/scripts/validate-manifest.mjs project .osforge/control-plane/templates/project.template.json
           node .osforge/control-plane/scripts/validate-manifest.mjs version-lock .osforge/control-plane/templates/version-lock.template.json
           node .osforge/control-plane/scripts/validate-manifest.mjs project-path-policy .osforge/control-plane/templates/project-path-policy.template.json
+          node .osforge/control-plane/scripts/validate-manifest.mjs adoption-bootstrap .osforge/control-plane/templates/adoption-bootstrap.template.json
 
       - name: Task manifests validate against their schema
         run: |
@@ -58,14 +59,14 @@ jobs:
           done
 
       - name: Human gate policy
-        run: node .osforge/control-plane/scripts/check-human-gates.mjs --task .osforge/tasks/CP1-A1.task.json
+        run: node .osforge/control-plane/scripts/check-human-gates.mjs --task .osforge/tasks/CP1-A2.task.json
 
       - name: Path policy against the real pull request diff
         if: github.event_name == 'pull_request'
         env:
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
-          node .osforge/control-plane/scripts/check-path-policy.mjs --task .osforge/tasks/CP1-A1.task.json --base "$PR_BASE_SHA" --head HEAD
+          node .osforge/control-plane/scripts/check-path-policy.mjs --task .osforge/tasks/CP1-A2.task.json --base "$PR_BASE_SHA" --head HEAD
 
       - name: Subscription-only (no paid AI) scan
         run: node .osforge/control-plane/scripts/check-no-paid-ai.mjs

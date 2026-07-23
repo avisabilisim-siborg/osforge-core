@@ -1,6 +1,6 @@
 {
   "policy_id": "osforge.control-plane.security",
-  "control_plane_version": "1.1.0",
+  "control_plane_version": "1.2.0",
   "constitution_reference": "docs/000_OSFORGE_CONSTITUTION.md",
   "default_posture": "fail-closed",
   "principles": [

@@ -42,6 +42,97 @@
     "state_directory": { "type": "string", "minLength": 1 },
     "user_owned_untracked_paths": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
     "created_by": { "type": "string", "minLength": 1, "pattern": "^[^\\u0000-\\u001f\\u007f]{1,120}$" },
-    "created_at": { "type": "string", "format": "date-time" }
+    "created_at": { "type": "string", "format": "date-time" },
+
+    "product_runtime_integrations": {
+      "description": "Optional, exact inventory of paid-model integrations that already exist in the CONSUMER PRODUCT's own runtime. Declaring one is not permission for anything: it grants the control plane and CI no capability, and every field is exact so an undeclared integration, a changed endpoint, a changed secret reference or a use outside the declared paths still fails closed.",
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "integration_id", "integration_class", "provider", "endpoint_host",
+          "runtime_source_paths", "reference_paths", "runtime_only",
+          "secret_reference", "control_plane_access", "ci_access", "workflow_access",
+          "human_owner", "data_classification", "baseline_status"
+        ],
+        "properties": {
+          "integration_id": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{2,63}$" },
+          "integration_class": { "type": "string", "enum": ["product_runtime_ai"] },
+          "provider": { "type": "string", "pattern": "^[a-z][a-z0-9-]{1,31}$" },
+          "endpoint_host": { "type": "string", "pattern": "^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$" },
+          "runtime_source_paths": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": { "type": "string", "minLength": 1, "pattern": "^[^*?\\\\\\u0000-\\u001f\\u007f]+$" }
+          },
+          "reference_paths": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": { "type": "string", "minLength": 1, "pattern": "^[^*?\\\\\\u0000-\\u001f\\u007f]+$" }
+          },
+          "runtime_only": { "type": "boolean", "const": true },
+          "secret_reference": { "type": "string", "pattern": "^[A-Z][A-Z0-9_]{2,63}$" },
+          "control_plane_access": { "type": "boolean", "const": false },
+          "ci_access": { "type": "boolean", "const": false },
+          "workflow_access": { "type": "boolean", "const": false },
+          "human_owner": { "type": "string", "minLength": 1, "pattern": "^[^\\u0000-\\u001f\\u007f]{1,120}$" },
+          "data_classification": { "type": "string", "enum": ["INTERNAL", "CONFIDENTIAL", "RESTRICTED", "CRITICAL"] },
+          "risk_note": { "type": "string", "minLength": 1 },
+          "baseline_status": { "type": "string", "enum": ["existing_baseline", "new_or_changed"] },
+          "approval_reference": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+
+    "workflow_classification": {
+      "description": "Optional, exact classification of every tracked workflow in the consumer repository. The strict Consumer CI contract applies to the control plane adapters only; the consumer's pre-existing product workflows are recorded as an unchanged, digest-pinned baseline instead of being silently held to a contract they were never written against. A workflow that is not classified here is rejected.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["control_plane_consumer_workflows", "existing_product_workflows", "deploy_or_production_workflows"],
+      "properties": {
+        "control_plane_consumer_workflows": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1, "pattern": "^\\.github/workflows/[A-Za-z0-9._-]+\\.ya?ml$" }
+        },
+        "existing_product_workflows": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["path", "base_tree_digest", "classification", "network_egress"],
+            "properties": {
+              "path": { "type": "string", "minLength": 1, "pattern": "^\\.github/workflows/[A-Za-z0-9._-]+\\.ya?ml$" },
+              "base_tree_digest": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+              "classification": { "type": "string", "enum": ["product_ci", "product_evidence", "product_quality"] },
+              "network_egress": {
+                "type": "array",
+                "uniqueItems": true,
+                "items": { "type": "string", "minLength": 1, "pattern": "^[^\\u0000-\\u001f\\u007f]{1,200}$" }
+              },
+              "risk_note": { "type": "string", "minLength": 1 }
+            }
+          }
+        },
+        "deploy_or_production_workflows": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["path", "base_tree_digest"],
+            "properties": {
+              "path": { "type": "string", "minLength": 1, "pattern": "^\\.github/workflows/[A-Za-z0-9._-]+\\.ya?ml$" },
+              "base_tree_digest": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+              "risk_note": { "type": "string", "minLength": 1 }
+            }
+          }
+        }
+      }
+    }
   }
 }

@@ -12,13 +12,16 @@ export const REQUIRED_POLICIES = [
   "workflow-policy",
   "cost-policy",
   "risk-policy",
-  "instruction-policy"
+  "instruction-policy",
+  "adoption-policy"
 ];
 export const REQUIRED_SCHEMAS = [
-  "task", "audit", "approval", "state", "project", "version-lock", "project-path-policy"
+  "task", "audit", "approval", "state", "project", "version-lock", "project-path-policy",
+  "adoption-bootstrap"
 ];
 export const REQUIRED_TEMPLATES = [
-  "task", "audit", "approval", "state", "project", "version-lock", "project-path-policy"
+  "task", "audit", "approval", "state", "project", "version-lock", "project-path-policy",
+  "adoption-bootstrap"
 ];
 export const REQUIRED_SCRIPTS = [
   "cp-lib",
@@ -31,14 +34,18 @@ export const REQUIRED_SCRIPTS = [
   "check-no-paid-ai",
   "check-workflow-permissions",
   "check-prompt-consistency",
-  "check-instruction-boundary"
+  "check-instruction-boundary",
+  "check-product-integrations",
+  "check-adoption-bootstrap"
 ];
 
 /** Consumer interface artefacts that must ship with the canonical plane. */
 export const REQUIRED_CONSUMER_ARTEFACTS = [
   `${CONTROL_PLANE_DIR}/templates/consumer-ci.template.yml`,
+  `${CONTROL_PLANE_DIR}/schemas/claude-launch-config.schema.json`,
   "docs/control-plane/CONSUMER_INTERFACE.md",
-  "docs/control-plane/ADOPTION_GUIDE.md"
+  "docs/control-plane/ADOPTION_GUIDE.md",
+  "docs/control-plane/CONSUMER_ADOPTION_BOOTSTRAP.md"
 ];
 
 /** Policy keys that must be consumed by code, not merely declared as data. */
@@ -63,8 +70,20 @@ const ENFORCED_POLICY_KEYS = {
     "forbidden_action_patterns",
     "action_pinning"
   ],
-  "cost-policy": ["rules", "scan_surface", "declaration_files", "control_plane_scope"],
-  "instruction-policy": ["canonical_instruction_files", "required_invariants", "instruction_file_regex"]
+  "cost-policy": ["rules", "scan_surface", "declaration_files", "control_plane_scope", "product_runtime_declaration"],
+  "instruction-policy": [
+    "canonical_instruction_files",
+    "required_invariants",
+    "instruction_file_regex",
+    "non_instruction_config_files"
+  ],
+  "adoption-policy": [
+    "bootstrap",
+    "adoption_artifact_patterns",
+    "forbidden_bootstrap_patterns",
+    "forbidden_bootstrap_path_categories",
+    "required_assertions"
+  ]
 };
 
 export function controlPlaneFindings() {
@@ -159,6 +178,48 @@ export function controlPlaneFindings() {
   if ((pathPolicy.build_output_directories ?? []).length === 0) {
     findings.push("path policy must declare build_output_directories for recursive build output");
   }
+  // CP1-A.2 — the two narrow allowances are data, and empty data must never be
+  // mistaken for a working control. An adoption policy with no artefact
+  // allowlist would accept any path; an instruction policy whose config
+  // exception carries no schema would accept any content.
+  const adoptionFile = `${CONTROL_PLANE_DIR}/policies/adoption-policy.json`;
+  const adoption = existsSync(adoptionFile) ? readJson(adoptionFile) : {};
+  if ((adoption.adoption_artifact_patterns ?? []).length === 0) {
+    findings.push("adoption policy must declare adoption_artifact_patterns: an empty allowlist would accept any path");
+  }
+  const grants = adoption.bootstrap?.grants ?? [];
+  if (grants.length !== 1 || grants[0] !== "protected_path_change") {
+    findings.push("adoption policy bootstrap must grant exactly 'protected_path_change' and nothing else");
+  }
+  for (const never of adoption.bootstrap?.never_grants ?? []) {
+    if (grants.includes(never)) {
+      findings.push(`adoption policy bootstrap both grants and forbids '${never}'`);
+    }
+  }
+  if (adoption.bootstrap?.single_use !== true) {
+    findings.push("adoption policy bootstrap must be single_use");
+  }
+  const instructionFile = `${CONTROL_PLANE_DIR}/policies/instruction-policy.json`;
+  const instruction = existsSync(instructionFile) ? readJson(instructionFile) : {};
+  for (const entry of instruction.non_instruction_config_files ?? []) {
+    if (typeof entry.path !== "string" || /[*?]/u.test(entry.path)) {
+      findings.push(
+        `instruction policy non_instruction_config_files entry ${JSON.stringify(entry.path)} must be an exact path; a glob allowance is forbidden`
+      );
+    }
+    const schemaFile = `${CONTROL_PLANE_DIR}/schemas/${entry.schema}.schema.json`;
+    if (!existsSync(schemaFile)) {
+      findings.push(`instruction policy references a missing configuration schema: ${schemaFile}`);
+      continue;
+    }
+    const schema = readJson(schemaFile);
+    if (schema.additionalProperties !== false) {
+      findings.push(
+        `${schemaFile}: a non-instruction configuration schema must be closed (additionalProperties:false), otherwise it cannot prove the file carries no instruction content`
+      );
+    }
+  }
+
   for (const name of pathPolicy.build_output_directories ?? []) {
     if (typeof name !== "string" || name.includes("/") || name.includes("\\") || name === "." || name === "..") {
       findings.push(`build_output_directories entry ${JSON.stringify(name)} must be a single directory name`);

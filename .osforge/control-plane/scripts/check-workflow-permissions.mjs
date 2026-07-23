@@ -16,6 +16,7 @@ import {
   runCli,
   CONTROL_PLANE_DIR
 } from "./cp-lib.mjs";
+import { isBaselineExemptFinding } from "./check-product-integrations.mjs";
 
 const SHA_PINNED = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._\/-]+@[0-9a-f]{40}$/u;
 const LOCAL_ACTION = /^(\.\/|docker:\/\/)/u;
@@ -90,7 +91,21 @@ export function declaredSteps(doc) {
   return steps;
 }
 
-export function workflowFindings(files, readFile, policy) {
+/**
+ * @param options {
+ *   baselineExemptions,  paths of digest-pinned, PROVEN-UNCHANGED product workflows
+ *   risks                array that receives the downgraded, still-reported items
+ * }
+ *
+ * With no options this is byte-for-byte the CP1-A.1 contract. A baseline
+ * exemption only ever downgrades the pre-existing hygiene classes (a missing
+ * permissions block, a permission value, a mutable action tag) into a reported
+ * open risk. A forbidden trigger event, a consumed secret, a `git push`, an
+ * auto-merge action and an unparsable document stay hard findings for every
+ * workflow, classified or not — a baseline is proof of "unchanged", never a
+ * licence for what the file does.
+ */
+export function workflowFindings(files, readFile, policy, options = {}) {
   const findings = [];
   const allowedEvents = new Set(policy.allowed_events ?? []);
   const forbiddenEvents = new Set(policy.forbidden_events ?? []);
@@ -204,7 +219,22 @@ export function workflowFindings(files, readFile, policy) {
       }
     }
   }
-  return findings;
+
+  const exemptions = new Set(options.baselineExemptions ?? []);
+  if (exemptions.size === 0) {
+    return findings;
+  }
+  const risks = options.risks ?? [];
+  const kept = [];
+  for (const finding of findings) {
+    const file = [...exemptions].find((f) => finding.startsWith(`${f}:`) || finding.startsWith(`${f} (`));
+    if (file !== undefined && isBaselineExemptFinding(finding)) {
+      risks.push(`existing product workflow baseline risk — ${finding}`);
+      continue;
+    }
+    kept.push(finding);
+  }
+  return kept;
 }
 
 // ---------------------------------------------------------------------------
